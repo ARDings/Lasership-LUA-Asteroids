@@ -13,7 +13,7 @@ SOUND_ENABLED = False  # Standardmäßig deaktiviert
 
 try:
     print("Versuche Audio zu initialisieren...")
-    pygame.mixer.init(22050, 16, 1, 1024)
+    pygame.mixer.init(22050, 16, 1, 512)  # Kleinerer Buffer
     print("Audio erfolgreich initialisiert")
     print(f"Treiber: {pygame.mixer.get_init()}")
     SOUND_ENABLED = True
@@ -26,11 +26,9 @@ if SOUND_ENABLED:
     try:
         SOUND_SHOOT = pygame.mixer.Sound('shoot.wav')
         SOUND_EXPLOSION = pygame.mixer.Sound('explosion.wav')
-        SOUND_THRUST = pygame.mixer.Sound('thrust.wav')
         # Lautstärke der Effekte einzeln anpassen
-        SOUND_SHOOT.set_volume(0.3)
-        SOUND_EXPLOSION.set_volume(0.3)
-        SOUND_THRUST.set_volume(0.2)
+        SOUND_SHOOT.set_volume(0.2)  # Etwas leiser
+        SOUND_EXPLOSION.set_volume(0.2)  # Etwas leiser
     except Exception as e:
         print(f"Warning: Sound konnte nicht geladen werden: {e}")
         SOUND_ENABLED = False
@@ -65,14 +63,20 @@ STATE_GAMEOVER = 2
 # Hilfsfunktionen
 # -------------------------------
 def render_text(text, size, color=COLOR_TEXT):
-    # Cache für Fonts hinzufügen
-    if not hasattr(render_text, 'font_cache'):
-        render_text.font_cache = {}
+    # Statisches Cache-Dict für alle Text-Renderings
+    if not hasattr(render_text, 'text_cache'):
+        render_text.text_cache = {}
     
-    if size not in render_text.font_cache:
-        render_text.font_cache[size] = pygame.font.SysFont(None, size)
+    # Cache-Key aus Text, Größe und Farbe
+    cache_key = (text, size, color)
+    if cache_key not in render_text.text_cache:
+        if not hasattr(render_text, 'font_cache'):
+            render_text.font_cache = {}
+        if size not in render_text.font_cache:
+            render_text.font_cache[size] = pygame.font.SysFont(None, size)
+        render_text.text_cache[cache_key] = render_text.font_cache[size].render(text, True, color)
     
-    return render_text.font_cache[size].render(text, True, color)
+    return render_text.text_cache[cache_key]
 
 def center_text(rendered_surf, w, h):
     x = (w - rendered_surf.get_width()) // 2
@@ -248,6 +252,12 @@ particles = []
 player_lives = 3
 score = 0
 
+# Globale Variablen für gecachte Oberflächen
+score_surface = None
+lives_surface = None
+last_score = None
+last_lives = None
+
 def play_sound(sound):
     if SOUND_ENABLED:
         try:
@@ -266,7 +276,7 @@ def start_game():
     score = 0
 
 def create_explosion(pos, num_particles=10):
-    for _ in range(min(num_particles, 5)):
+    for _ in range(min(num_particles, 3)):
         particles.append(Particle(pos))
 
 # -------------------------------
@@ -324,7 +334,6 @@ while running:
         spaceship.rotate(1)
     if keys[pygame.K_UP]:
         spaceship.thrust()
-        play_sound(SOUND_THRUST)
 
     spaceship.update()
     for asteroid in asteroids:
@@ -380,14 +389,18 @@ while running:
         particle.draw(screen)
 
     # Leben links oben anzeigen
-    life_text = f"Lives: {player_lives}"
-    life_rendered = render_text(life_text, 24)
-    screen.blit(life_rendered, (10, 10))
+    if last_lives != player_lives:
+        last_lives = player_lives
+        life_text = f"Lives: {player_lives}"
+        lives_surface = render_text(life_text, 24)
+    screen.blit(lives_surface, (10, 10))
 
     # Score rechts oben anzeigen
-    score_text = f"Score: {score}"
-    score_rendered = render_text(score_text, 24)
-    screen.blit(score_rendered, (WIDTH - score_rendered.get_width() - 10, 10))
+    if last_score != score:
+        last_score = score
+        score_text = f"Score: {score}"
+        score_surface = render_text(score_text, 24)
+    screen.blit(score_surface, (WIDTH - score_surface.get_width() - 10, 10))
 
     pygame.display.flip()
 
