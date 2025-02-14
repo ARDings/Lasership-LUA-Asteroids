@@ -492,9 +492,11 @@ function checkCollisions()
             local distSq = dx*dx + dy*dy
             local minDistSq = (a1.radius + a2.radius) * (a1.radius + a2.radius)
             
-            -- Unverwundbarkeits-Prüfung nur bei Asteroid-Asteroid Kollision
-            if distSq < minDistSq and 
-               a1.invulnerable <= 0 and a2.invulnerable <= 0 then
+            -- Sichere Unverwundbarkeits-Prüfung
+            local a1_vulnerable = not a1.invulnerable or a1.invulnerable <= 0
+            local a2_vulnerable = not a2.invulnerable or a2.invulnerable <= 0
+            
+            if distSq < minDistSq and a1_vulnerable and a2_vulnerable then
                 local midX = (a1.x + a2.x) / 2
                 local midY = (a1.y + a2.y) / 2
                 createExplosion(midX, midY)
