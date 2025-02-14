@@ -2,14 +2,24 @@ import pygame
 import math
 import random
 import sys
+import signal
+import psutil
+import subprocess
 
 pygame.init()
+
+# SIGINT-Handler einrichten, damit Strg+C im Terminal das Programm beendet
+def signal_handler(sig, frame):
+    pygame.quit()
+    sys.exit()
+signal.signal(signal.SIGINT, signal_handler)
 
 # -------------------------------
 # Konstanten
 # -------------------------------
 WIDTH, HEIGHT = 800, 600
-FPS = 60
+# FPS-Limit: 0 bedeutet hier KEIN Limit
+FPS_LIMIT = 0
 
 # Farben (RGB)
 COLOR_BG = (0, 0, 0)
@@ -28,18 +38,15 @@ STATE_GAMEOVER = 2
 # Hilfsfunktionen
 # -------------------------------
 def render_text(text, size, color=COLOR_TEXT):
-    """Erstellt ein gerendertes Text-Objekt."""
     font = pygame.font.SysFont(None, size)
     return font.render(text, True, color)
 
 def center_text(rendered_surf, w, h):
-    """Berechnet die Position, um einen Surface zentriert anzuzeigen."""
     x = (w - rendered_surf.get_width()) // 2
     y = (h - rendered_surf.get_height()) // 2
     return (x, y)
 
 def rotate_vector(vec, angle_rad):
-    """Dreht einen 2D-Vektor (x,y) um angle_rad."""
     x, y = vec
     cos_a = math.cos(angle_rad)
     sin_a = math.sin(angle_rad)
@@ -48,9 +55,17 @@ def rotate_vector(vec, angle_rad):
     return pygame.Vector2(rx, ry)
 
 def check_collision_circle(pos1, r1, pos2, r2):
-    """Prüft, ob zwei Kreise sich überlappen."""
     dist = pos1.distance_to(pos2)
     return dist < (r1 + r2)
+
+def get_gpu_temp():
+    try:
+        # vcgencmd liefert z. B. "temp=48.0'C\n"
+        temp_str = subprocess.check_output(["vcgencmd", "measure_temp"]).decode()
+        temp_val = temp_str.replace("temp=", "").replace("'C\n", "")
+        return float(temp_val)
+    except Exception:
+        return None
 
 # -------------------------------
 # Klassen
@@ -60,7 +75,7 @@ class Spaceship:
     def __init__(self, x, y):
         self.pos = pygame.Vector2(x, y)
         self.vel = pygame.Vector2(0, 0)
-        self.angle = 0  # in Grad, wobei 0 = nach oben zeigt
+        self.angle = 0  # 0 = zeigt nach oben
         self.acceleration = 0.3
         self.friction = 0.98
         self.size = 20
@@ -75,8 +90,6 @@ class Spaceship:
         if self.pos.y > HEIGHT: self.pos.y = 0
 
     def draw(self, surface):
-        # "Cooleres" Raumschiff als Polygon mit Cockpit und Flügeln.
-        # Der Tip des Schiffes wird mit dem Vektor (0, -size) definiert und rotiert.
         angle_rad = math.radians(self.angle)
         tip = self.pos + rotate_vector((0, -self.size), angle_rad)
         left_wing = self.pos + rotate_vector((-self.size * 0.6, self.size * 0.8), angle_rad)
@@ -90,7 +103,7 @@ class Spaceship:
         self.angle += 5 * direction
 
     def thrust(self):
-        # Nutze denselben Basisvektor wie beim Zeichnen (0, -1) rotiert um angle.
+        # Beschleunigung immer in Richtung der Schiffsspitze
         angle_rad = math.radians(self.angle)
         direction = rotate_vector((0, -1), angle_rad)
         thrust_vec = direction * self.acceleration
@@ -101,7 +114,6 @@ class Spaceship:
         direction = rotate_vector((0, -1), angle_rad)
         bullet_speed = 5
         bullet_vel = direction * bullet_speed
-        # Starte den Schuss am Tip des Schiffes
         bullet_pos = self.pos + rotate_vector((0, -self.size), angle_rad)
         return Bullet(bullet_pos, bullet_vel)
 
@@ -113,12 +125,11 @@ class Bullet:
         self.pos = pygame.Vector2(pos)
         self.vel = pygame.Vector2(vel)
         self.radius = 4
-        self.life = 120  # Lebensdauer in Frames
+        self.life = 120
 
     def update(self):
         self.pos += self.vel
         self.life -= 1
-        # Wrap-around
         if self.pos.x < 0: self.pos.x = WIDTH
         if self.pos.x > WIDTH: self.pos.x = 0
         if self.pos.y < 0: self.pos.y = HEIGHT
@@ -148,7 +159,6 @@ class Asteroid:
 
     def update(self):
         self.pos += self.vel
-        # Wrap-around
         if self.pos.x < 0: self.pos.x = WIDTH
         if self.pos.x > WIDTH: self.pos.x = 0
         if self.pos.y < 0: self.pos.y = HEIGHT
@@ -202,7 +212,7 @@ def start_game():
     particles = []
     player_lives = 3
 
-def create_explosion(pos, num_particles=20):
+def create_explosion(pos, num_particles=10):
     for _ in range(num_particles):
         particles.append(Particle(pos))
 
@@ -211,12 +221,19 @@ def create_explosion(pos, num_particles=20):
 # -------------------------------
 running = True
 while running:
-    dt = clock.tick(FPS)
+    # dt begrenzt hier nicht die FPS, da FPS_LIMIT=0
+    dt = clock.tick(FPS_LIMIT)
+    
+    # Ereignis-Verarbeitung
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
+        # Beende auch per Strg+C (CTRL + C)
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_c and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                running = False
+
             if game_state == STATE_START:
                 if event.key == pygame.K_RETURN:
                     start_game()
@@ -229,7 +246,6 @@ while running:
                     start_game()
                     game_state = STATE_PLAY
 
-    # Spielzustände behandeln
     if game_state == STATE_START:
         screen.fill(COLOR_BG)
         text = "ASTEROIDS - Press ENTER to Start"
@@ -255,7 +271,6 @@ while running:
     if keys[pygame.K_UP]:
         spaceship.thrust()
 
-    # Update Objekte
     spaceship.update()
     for asteroid in asteroids:
         asteroid.update()
@@ -273,7 +288,7 @@ while running:
         for bullet in bullets:
             if check_collision_circle(bullet.pos, bullet.radius, asteroid.pos, asteroid.get_radius()):
                 hit = True
-                bullet.life = 0  # Bullet verschwinden lassen
+                bullet.life = 0
                 create_explosion(asteroid.pos, 15)
                 break
         if not hit:
@@ -287,7 +302,6 @@ while running:
                                   asteroid.pos, asteroid.get_radius()):
             create_explosion(spaceship.pos, 30)
             player_lives -= 1
-            # Reset des Schiffs
             spaceship.pos = pygame.Vector2(WIDTH // 2, HEIGHT // 2)
             spaceship.vel = pygame.Vector2(0, 0)
             spaceship.angle = 0
@@ -295,7 +309,6 @@ while running:
                 game_state = STATE_GAMEOVER
             break
 
-    # Falls alle Asteroiden verschwunden sind, neue Welle erzeugen
     if not asteroids:
         asteroids = [Asteroid() for _ in range(5)]
 
@@ -313,6 +326,21 @@ while running:
     life_text = f"Lives: {player_lives}"
     life_rendered = render_text(life_text, 24)
     screen.blit(life_rendered, (10, 10))
+
+    # Metriken oben rechts anzeigen: FPS, CPU-Auslastung und GPU-Temperatur
+    cpu_usage = psutil.cpu_percent(interval=None)
+    gpu_temp = get_gpu_temp()
+    metrics_lines = [
+        f"FPS: {int(clock.get_fps())}",
+        f"CPU: {cpu_usage}%",
+    ]
+    if gpu_temp is not None:
+        metrics_lines.append(f"GPU Temp: {gpu_temp}°C")
+    y_offset = 0
+    for line in metrics_lines:
+        line_surf = render_text(line, 20)
+        screen.blit(line_surf, (WIDTH - line_surf.get_width() - 10, 10 + y_offset))
+        y_offset += line_surf.get_height()
 
     pygame.display.flip()
 
