@@ -5,8 +5,35 @@ import sys
 import signal
 import psutil
 import os
+import pygame.mixer
 
 pygame.init()
+# Versuche verschiedene Audio-Konfigurationen
+SOUND_ENABLED = False  # Standardmäßig deaktiviert
+
+try:
+    print("Versuche Audio zu initialisieren...")
+    pygame.mixer.init(22050, 16, 1, 1024)
+    print("Audio erfolgreich initialisiert")
+    print(f"Treiber: {pygame.mixer.get_init()}")
+    SOUND_ENABLED = True
+except Exception as e:
+    print(f"Warning: Sound konnte nicht initialisiert werden: {e}")
+    SOUND_ENABLED = False
+
+# Sound-Objekte nur erstellen wenn Sound aktiviert ist
+if SOUND_ENABLED:
+    try:
+        SOUND_SHOOT = pygame.mixer.Sound('shoot.wav')
+        SOUND_EXPLOSION = pygame.mixer.Sound('explosion.wav')
+        SOUND_THRUST = pygame.mixer.Sound('thrust.wav')
+        # Lautstärke der Effekte einzeln anpassen
+        SOUND_SHOOT.set_volume(0.3)
+        SOUND_EXPLOSION.set_volume(0.3)
+        SOUND_THRUST.set_volume(0.2)
+    except Exception as e:
+        print(f"Warning: Sound konnte nicht geladen werden: {e}")
+        SOUND_ENABLED = False
 
 # SIGINT-Handler einrichten, damit Strg+C im Terminal das Programm beendet
 def signal_handler(sig, frame):
@@ -219,15 +246,24 @@ asteroids = []
 bullets = []
 particles = []
 player_lives = 3
+score = 0
+
+def play_sound(sound):
+    if SOUND_ENABLED:
+        try:
+            sound.play()
+        except:
+            pass
 
 def start_game():
-    global spaceship, asteroids, bullets, particles, player_lives
+    global spaceship, asteroids, bullets, particles, player_lives, score
     kill_unnecessary_processes()
     spaceship = Spaceship(WIDTH // 2, HEIGHT // 2)
     asteroids = [Asteroid() for _ in range(5)]
     bullets = []
     particles = []
     player_lives = 3
+    score = 0
 
 def create_explosion(pos, num_particles=10):
     for _ in range(min(num_particles, 5)):
@@ -258,6 +294,7 @@ while running:
             elif game_state == STATE_PLAY:
                 if event.key == pygame.K_SPACE:
                     bullets.append(spaceship.shoot())
+                    play_sound(SOUND_SHOOT)
             elif game_state == STATE_GAMEOVER:
                 if event.key == pygame.K_RETURN:
                     start_game()
@@ -287,6 +324,7 @@ while running:
         spaceship.rotate(1)
     if keys[pygame.K_UP]:
         spaceship.thrust()
+        play_sound(SOUND_THRUST)
 
     spaceship.update()
     for asteroid in asteroids:
@@ -307,6 +345,8 @@ while running:
                 hit = True
                 bullet.life = 0
                 create_explosion(asteroid.pos, 15)
+                play_sound(SOUND_EXPLOSION)
+                score += 100
                 break
         if not hit:
             new_asteroids.append(asteroid)
@@ -338,6 +378,16 @@ while running:
         bullet.draw(screen)
     for particle in particles:
         particle.draw(screen)
+
+    # Leben links oben anzeigen
+    life_text = f"Lives: {player_lives}"
+    life_rendered = render_text(life_text, 24)
+    screen.blit(life_rendered, (10, 10))
+
+    # Score rechts oben anzeigen
+    score_text = f"Score: {score}"
+    score_rendered = render_text(score_text, 24)
+    screen.blit(score_rendered, (WIDTH - score_rendered.get_width() - 10, 10))
 
     pygame.display.flip()
 
