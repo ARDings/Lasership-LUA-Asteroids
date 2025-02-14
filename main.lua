@@ -8,7 +8,7 @@ function love.load()
     MAX_ASTEROIDS = 5
     DIFFICULTY_INCREASE_TIME = 10  -- Sekunden
     difficulty_timer = 0  -- Hier initialisieren!
-    COLLISION_CHECK_INTERVAL = 0.05  -- Alle 50ms statt jeden Frame
+    COLLISION_CHECK_INTERVAL = 0.1  -- Längeres Intervall
     collision_timer = 0
     
     -- Spielzustände
@@ -42,24 +42,19 @@ function love.load()
         explosion = love.audio.newSource("explosion.wav", "static")
     }
     
-    -- Ein Schuss-Sound, lauter
+    -- Sound-Einstellungen
     sounds.shoot:setVolume(1.0)
-    
-    -- Explosions-Pool mit besseren Einstellungen
-    soundPool = {
-        explosion = {}
-    }
-    
-    -- Explosionen im Pool
-    for i = 1, 3 do
-        local explosion = sounds.explosion:clone()
-        explosion:setVolume(0.9)  -- Lauter
-        explosion:setPitch(0.8 + i * 0.1)  -- Tiefere Basis-Frequenz
-        soundPool.explosion[i] = explosion
-    end
+    sounds.shoot:setPitch(0.7)
+    sounds.explosion:setVolume(1.0)
+    sounds.explosion:setPitch(0.5)
     
     -- Spiel starten
     resetGame()
+    
+    -- Neue Konstanten
+    MIN_ASTEROID_SIZE = 20
+    MAX_ASTEROIDS_TOTAL = 20  -- Weniger maximale Asteroiden
+    MAX_PARTICLES = 30  -- Weniger Partikel
 end
 
 function love.update(dt)
@@ -85,7 +80,7 @@ function love.update(dt)
         end
         
         -- Asteroiden nachspawnen
-        if #asteroids < MAX_ASTEROIDS then
+        if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
             -- Spawn an Bildschirmrand
             local side = math.random(1, 4)
             local x, y
@@ -159,7 +154,11 @@ function love.draw()
         
         -- Partikel zeichnen
         for _, particle in ipairs(particles) do
-            love.graphics.setColor(1, 0.5, 0)
+            if particle.color then
+                love.graphics.setColor(particle.color[1], particle.color[2], particle.color[3])
+            else
+                love.graphics.setColor(1, 0.5, 0)
+            end
             love.graphics.circle("fill", particle.x, particle.y, particle.size)
         end
         
@@ -206,7 +205,7 @@ function love.keypressed(key)
 end
 
 function updatePlayer(dt)
-    -- Rotation (Änderung: Winkel in Radiant umrechnen)
+    -- Rotation
     if love.keyboard.isDown("left") then
         player.angle = player.angle - ROTATION_SPEED * dt
     end
@@ -214,16 +213,15 @@ function updatePlayer(dt)
         player.angle = player.angle + ROTATION_SPEED * dt
     end
     
-    -- Schub (Änderung: Bewegung immer in Richtung der Spitze)
+    -- Schub
     if love.keyboard.isDown("up") then
-        -- Richtungsvektor basierend auf der Rotation
         local thrust_x = math.cos(player.angle) * ACCELERATION * dt
         local thrust_y = math.sin(player.angle) * ACCELERATION * dt
         player.dx = player.dx + thrust_x
         player.dy = player.dy + thrust_y
         
         -- Thruster-Partikel erzeugen
-        if math.random() < 0.3 then  -- 30% Chance pro Frame
+        if math.random() < 0.3 then
             createThrusterParticle()
         end
     end
@@ -262,21 +260,14 @@ end
 
 function updateAsteroids(dt)
     for _, asteroid in ipairs(asteroids) do
-        -- Bewegung
+        -- Einfachere Bewegung ohne Geschwindigkeitsbegrenzung
         asteroid.x = asteroid.x + asteroid.dx * dt
         asteroid.y = asteroid.y + asteroid.dy * dt
         asteroid.angle = asteroid.angle + asteroid.spin * dt
         
-        -- Unverwundbarkeit reduzieren
-        if asteroid.invulnerable and asteroid.invulnerable > 0 then
-            asteroid.invulnerable = asteroid.invulnerable - dt
-        end
-        
         -- Bildschirmgrenzen
-        if asteroid.x < 0 then asteroid.x = WIDTH end
-        if asteroid.x > WIDTH then asteroid.x = 0 end
-        if asteroid.y < 0 then asteroid.y = HEIGHT end
-        if asteroid.y > HEIGHT then asteroid.y = 0 end
+        asteroid.x = (asteroid.x + WIDTH) % WIDTH
+        asteroid.y = (asteroid.y + HEIGHT) % HEIGHT
     end
 end
 
@@ -286,7 +277,13 @@ function updateParticles(dt)
         p.x = p.x + p.dx * dt
         p.y = p.y + p.dy * dt
         p.lifetime = p.lifetime - dt
+        
+        -- Partikel werden kleiner und verblassen
         p.size = p.size * 0.95
+        if p.color then
+            p.color[1] = p.color[1] * 0.98  -- Rot langsamer verblassen
+            p.color[2] = p.color[2] * 0.95  -- Grün schneller verblassen
+        end
         
         if p.lifetime <= 0 then
             table.remove(particles, i)
@@ -316,16 +313,9 @@ function playSound(soundType)
     if soundType == "shoot" then
         sounds.shoot:stop()
         sounds.shoot:play()
-    else
-        -- Finde freien Explosions-Sound
-        for _, sound in ipairs(soundPool.explosion) do
-            if not sound:isPlaying() then
-                sound:play()
-                return
-            end
-        end
-        -- Wenn alle belegt, nutze den ersten
-        soundPool.explosion[1]:play()
+    elseif soundType == "explosion" then
+        sounds.explosion:stop()
+        sounds.explosion:play()
     end
 end
 
@@ -345,13 +335,13 @@ function createAsteroid(size, x, y, invulnerable)
     local asteroid = {
         x = x or math.random(0, WIDTH),
         y = y or math.random(0, HEIGHT),
-        dx = math.random(-100, 100),
-        dy = math.random(-100, 100),
+        dx = math.random(-150, 150),  -- Schnellere Bewegung
+        dy = math.random(-150, 150),
         radius = size or 40,
-        angle = 0,
-        spin = math.random(-3, 3),
+        angle = math.random() * math.pi * 2,  -- Zufällige Startrotation
+        spin = math.random(-5, 5),  -- Schnellere Rotation
         points = generateAsteroidPoints(size or 40),
-        invulnerable = invulnerable or 0  -- Zeit in Sekunden
+        invulnerable = invulnerable or 0
     }
     
     -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
@@ -368,15 +358,30 @@ function createAsteroid(size, x, y, invulnerable)
     table.insert(asteroids, asteroid)
 end
 
-function createExplosion(x, y)
-    for i = 1, 5 do  -- Von 10 auf 5 reduziert
+function createExplosion(x, y, size)
+    -- Mehr Partikel für größere Explosionen, aber mit Limit
+    local particleCount = math.min(8, math.floor(size/10))
+    
+    -- Alte Partikel entfernen wenn zu viele
+    while #particles >= MAX_PARTICLES do
+        table.remove(particles, 1)
+    end
+    
+    -- Explosions-Partikel in Kreisform
+    for i = 1, particleCount do
+        local angle = (i / particleCount) * math.pi * 2
+        local speed = math.random(100, 200)
         local particle = {
             x = x,
             y = y,
-            dx = math.random(-150, 150),  -- Etwas langsamer
-            dy = math.random(-150, 150),
-            size = math.random(2, 3),     -- Kleinere Partikel
-            lifetime = math.random(0.3, 0.6)  -- Kürzere Lebensdauer
+            dx = math.cos(angle) * speed,
+            dy = math.sin(angle) * speed,
+            size = math.random(2, 4),
+            lifetime = 0.3,
+            -- Zufällig zwischen den beiden Farben wechseln
+            color = math.random() > 0.5 
+                and {0.851, 0.349, 0.624}  -- Rosa
+                or {0.686, 0.875, 0.055}   -- Neon-Grün
         }
         table.insert(particles, particle)
     end
@@ -423,15 +428,18 @@ function drawPlayer()
 end
 
 function drawAsteroid(asteroid)
-    -- Unverwundbare Asteroiden blinken
+    -- Unverwundbare Asteroiden in Neon-Grün
     if asteroid.invulnerable and asteroid.invulnerable > 0 then
         if math.floor(asteroid.invulnerable * 10) % 2 == 0 then
-            love.graphics.setColor(0.5, 0.5, 1.0)  -- Bläulich wenn unverwundbar
+            -- Konvertiere Hex #afdf0e zu RGB (175/255, 223/255, 14/255)
+            love.graphics.setColor(0.686, 0.875, 0.055)  -- Neon-Grün
         else
-            love.graphics.setColor(1, 0.5, 0.5)  -- Normal
+            -- Konvertiere Hex #d9599f zu RGB (217/255, 89/255, 159/255)
+            love.graphics.setColor(0.851, 0.349, 0.624)  -- Rosa
         end
     else
-        love.graphics.setColor(1, 0.5, 0.5)  -- Normal
+        -- Normale Asteroiden in Rosa (#d9599f)
+        love.graphics.setColor(0.851, 0.349, 0.624)
     end
     
     local vertices = {}
@@ -459,19 +467,19 @@ function checkCollisions()
             local dx = bullet.x - asteroid.x
             local dy = bullet.y - asteroid.y
             local distSq = dx*dx + dy*dy
-            local radiusSq = asteroid.radius * asteroid.radius
+            local hitRadius = math.max(asteroid.radius, 15)
+            local radiusSq = hitRadius * hitRadius
             
-            if distSq < radiusSq then  -- Keine Unverwundbarkeits-Prüfung hier
-                createExplosion(asteroid.x, asteroid.y)
+            if distSq < radiusSq then
+                createExplosion(asteroid.x, asteroid.y, asteroid.radius)
                 table.remove(bullets, i)
                 table.remove(asteroids, j)
                 score = score + 100
                 
-                -- Neue Asteroiden sind NICHT unverwundbar bei Schuss-Teilung
-                if asteroid.radius > 20 then
-                    for _ = 1, 2 do
-                        createAsteroid(asteroid.radius/2, asteroid.x, asteroid.y)  -- Kein invulnerable Parameter
-                    end
+                -- Weniger neue Asteroiden
+                if asteroid.radius >= MIN_ASTEROID_SIZE and #asteroids < MAX_ASTEROIDS_TOTAL - 1 then
+                    local newSize = asteroid.radius * 0.7
+                    createAsteroid(newSize, asteroid.x, asteroid.y)  -- Nur ein neuer Asteroid
                 end
                 break
             end
@@ -499,7 +507,7 @@ function checkCollisions()
             if distSq < minDistSq and a1_vulnerable and a2_vulnerable then
                 local midX = (a1.x + a2.x) / 2
                 local midY = (a1.y + a2.y) / 2
-                createExplosion(midX, midY)
+                createExplosion(midX, midY, math.max(a1.radius, a2.radius))
                 
                 -- Neue Asteroiden sind unverwundbar bei Kollisions-Teilung
                 local newSize = math.max(a1.radius * 0.5, 10)
@@ -529,7 +537,7 @@ function checkCollisions()
         local minDistSq = (asteroid.radius + player.radius) * (asteroid.radius + player.radius)
         
         if distSq < minDistSq then
-            createExplosion(player.x, player.y)
+            createExplosion(player.x, player.y, player.radius)
             player.lives = player.lives - 1
             player.x = WIDTH/2
             player.y = HEIGHT/2
@@ -589,23 +597,19 @@ function saveHighscore(score)
 end
 
 function createThrusterParticle()
-    -- Position am Heck des Schiffs
+    if #thrusterParticles > MAX_PARTICLES/4 then return end  -- Noch weniger Thruster-Partikel
+    
     local backX = player.x - math.cos(player.angle) * 15
     local backY = player.y - math.sin(player.angle) * 15
-    
-    -- Zufällige Abweichung
-    local spread = 0.5
-    local angle = player.angle + math.pi + math.random(-spread, spread)
-    local speed = math.random(50, 150)
     
     local particle = {
         x = backX,
         y = backY,
-        dx = math.cos(angle) * speed,
-        dy = math.sin(angle) * speed,
-        lifetime = 0.5,
-        size = math.random(1, 3),
-        color = {1, 0.5, 0}  -- Orange
+        dx = -math.cos(player.angle) * 50,  -- Vereinfachte Bewegung
+        dy = -math.sin(player.angle) * 50,
+        lifetime = 0.2,
+        size = 1,  -- Feste Größe
+        color = {1, 0.5, 0}
     }
     table.insert(thrusterParticles, particle)
 end 

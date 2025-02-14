@@ -35,36 +35,40 @@ def create_explosion_sound():
     waveform = np.int16(waveform * 32767)
     wavfile.write('explosion.wav', sample_rate, waveform)
 
-def create_thrust_sound():
-    # Düsen-Sound
-    sample_rate = 22050
-    duration = 0.3
+def create_thruster_sound():
+    # Sampling rate
+    sample_rate = 44100
+    duration = 1.0  # 1 Sekunde
     t = np.linspace(0, duration, int(sample_rate * duration))
     
-    # Basis-Rauschen
-    noise = np.random.normal(0, 1, len(t))
+    # Basis-Frequenz für den Thruster (tiefer Brummton)
+    base_freq = 80
     
-    # Mehrere gefilterte Frequenzbänder
-    from scipy.signal import butter, filtfilt
-    b1, a1 = butter(2, [0.1, 0.3], btype='band')
-    b2, a2 = butter(2, [0.2, 0.4], btype='band')
+    # Mehrere Frequenzkomponenten für reicheren Klang
+    signal = np.sin(2 * np.pi * base_freq * t) * 0.3
+    signal += np.sin(2 * np.pi * (base_freq * 2) * t) * 0.2
+    signal += np.sin(2 * np.pi * (base_freq * 3) * t) * 0.1
     
-    noise1 = filtfilt(b1, a1, noise)
-    noise2 = filtfilt(b2, a2, noise)
+    # Rauschen hinzufügen
+    noise = np.random.normal(0, 0.1, len(t))
+    signal += noise * 0.2
     
-    waveform = (noise1 + noise2) * 0.5
-    envelope = np.ones_like(t)
-    envelope[:int(0.05*sample_rate)] = np.linspace(0, 1, int(0.05*sample_rate))
+    # Leichtes Pulsieren
+    modulation = np.sin(2 * np.pi * 8 * t)  # 8 Hz Modulation
+    signal *= (1 + modulation * 0.2)
     
-    waveform = waveform * envelope
+    # Normalisierung
+    signal = signal / np.max(np.abs(signal))
     
-    # Normalisieren und konvertieren
-    waveform = np.int16(waveform * 32767 * 0.7)  # Etwas leiser
-    wavfile.write('thrust.wav', sample_rate, waveform)
+    # Konvertierung zu 16-bit Integer
+    signal = (signal * 32767).astype(np.int16)
+    
+    # Sound speichern
+    wavfile.write('thruster.wav', sample_rate, signal)
 
 if __name__ == '__main__':
     print("Generiere Sound-Effekte...")
     create_shoot_sound()
     create_explosion_sound()
-    create_thrust_sound()
+    create_thruster_sound()
     print("Fertig! Sound-Dateien wurden erstellt.") 
