@@ -6,6 +6,7 @@ import signal
 import psutil
 import os
 import pygame.mixer
+import array
 
 pygame.init()
 # Versuche verschiedene Audio-Konfigurationen
@@ -44,7 +45,7 @@ signal.signal(signal.SIGINT, signal_handler)
 # -------------------------------
 WIDTH, HEIGHT = 800, 600
 # FPS-Limit: 0 bedeutet hier KEIN Limit
-FPS_LIMIT = 0
+FPS_LIMIT = 30
 
 # Farben (RGB)
 COLOR_BG = (0, 0, 0)
@@ -92,8 +93,11 @@ def rotate_vector(vec, angle_rad):
     return pygame.Vector2(rx, ry)
 
 def check_collision_circle(pos1, r1, pos2, r2):
-    dist = pos1.distance_to(pos2)
-    return dist < (r1 + r2)
+    # Schnelle Vorprüfung mit Rechtecken
+    if abs(pos1.x - pos2.x) > (r1 + r2) or abs(pos1.y - pos2.y) > (r1 + r2):
+        return False
+    # Nur wenn nötig genaue Distanz berechnen
+    return pos1.distance_to(pos2) < (r1 + r2)
 
 def kill_unnecessary_processes():
     # Liste von Prozessen, die beendet werden können
@@ -134,12 +138,9 @@ class Spaceship:
     def draw(self, surface):
         angle_rad = math.radians(self.angle)
         tip = self.pos + rotate_vector((0, -self.size), angle_rad)
-        left_wing = self.pos + rotate_vector((-self.size * 0.6, self.size * 0.8), angle_rad)
-        right_wing = self.pos + rotate_vector((self.size * 0.6, self.size * 0.8), angle_rad)
-        back_left = self.pos + rotate_vector((-self.size * 0.3, self.size * 1.2), angle_rad)
-        back_right = self.pos + rotate_vector((self.size * 0.3, self.size * 1.2), angle_rad)
-        points = [tip, right_wing, back_right, back_left, left_wing]
-        pygame.draw.polygon(surface, COLOR_SHIP, points)
+        left = self.pos + rotate_vector((-self.size, self.size), angle_rad)
+        right = self.pos + rotate_vector((self.size, self.size), angle_rad)
+        pygame.draw.polygon(surface, COLOR_SHIP, [tip, right, left])
 
     def rotate(self, direction):
         self.angle += 5 * direction
@@ -161,6 +162,43 @@ class Spaceship:
 
     def get_radius(self):
         return self.size * 0.8
+
+class BulletManager:
+    def __init__(self, max_bullets=50):
+        self.positions = [(0,0)] * max_bullets
+        self.velocities = [(0,0)] * max_bullets
+        self.lives = array.array('i', [0] * max_bullets)
+        self.count = 0
+    
+    def add(self, pos, vel):
+        if self.count < len(self.positions):
+            self.positions[self.count] = (pos.x, pos.y)
+            self.velocities[self.count] = (vel.x, vel.y)
+            self.lives[self.count] = 120
+            self.count += 1
+    
+    def update(self):
+        new_count = 0
+        for i in range(self.count):
+            if self.lives[i] > 0:
+                x, y = self.positions[i]
+                vx, vy = self.velocities[i]
+                x += vx
+                y += vy
+                if x < 0: x = WIDTH
+                if x > WIDTH: x = 0
+                if y < 0: y = HEIGHT
+                if y > HEIGHT: y = 0
+                self.positions[new_count] = (x, y)
+                self.velocities[new_count] = (vx, vy)
+                self.lives[new_count] = self.lives[i] - 1
+                new_count += 1
+        self.count = new_count
+
+    def draw(self, surface):
+        for i in range(self.count):
+            x, y = self.positions[i]
+            pygame.draw.circle(surface, COLOR_BULLET, (int(x), int(y)), 4)
 
 class Bullet:
     def __init__(self, pos, vel):
@@ -189,8 +227,8 @@ class Asteroid:
         angle = random.uniform(0, 2 * math.pi)
         speed = random.uniform(1, 2)
         self.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
-        self.num_points = random.randint(6, 10)
-        self.radius = random.randint(20, 40)
+        self.num_points = random.randint(4, 6)
+        self.radius = random.randint(15, 25)
         self.points = []
         for i in range(self.num_points):
             theta = (2 * math.pi / self.num_points) * i
@@ -200,6 +238,8 @@ class Asteroid:
             self.points.append((x, y))
         # Vorberechnen der transformierten Punkte
         self.transformed_points = [(0, 0)] * len(self.points)
+        self.cached_points = None
+        self.last_pos = None
 
     def update(self):
         self.pos += self.vel
@@ -213,29 +253,57 @@ class Asteroid:
             self.transformed_points[i] = (self.pos.x + p[0], self.pos.y + p[1])
 
     def draw(self, surface):
-        pygame.draw.polygon(surface, COLOR_ASTEROID, self.transformed_points)
+        pygame.draw.circle(surface, COLOR_ASTEROID, 
+                         (int(self.pos.x), int(self.pos.y)), 
+                         self.radius)
 
     def get_radius(self):
         return self.radius
 
-class Particle:
-    def __init__(self, pos):
-        self.pos = pygame.Vector2(pos)
-        angle = random.uniform(0, 2 * math.pi)
-        speed = random.uniform(1, 2)
-        self.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
-        self.life = random.randint(10, 20)
-
+class ParticleManager:
+    def __init__(self, max_particles=100):
+        self.positions = [(0,0)] * max_particles
+        self.velocities = [(0,0)] * max_particles
+        self.lives = array.array('i', [0] * max_particles)
+        self.count = 0
+    
+    def add(self, pos, vel, life):
+        if self.count < len(self.positions):
+            # Unterstützt sowohl Vector2 als auch Tuple
+            if isinstance(vel, tuple):
+                vx, vy = vel
+            else:
+                vx, vy = vel.x, vel.y
+            
+            if isinstance(pos, tuple):
+                px, py = pos
+            else:
+                px, py = pos.x, pos.y
+                
+            self.positions[self.count] = (px, py)
+            self.velocities[self.count] = (vx, vy)
+            self.lives[self.count] = life
+            self.count += 1
+    
     def update(self):
-        self.pos += self.vel
-        self.life -= 1
-
+        new_count = 0
+        for i in range(self.count):
+            if self.lives[i] > 0:
+                x, y = self.positions[i]
+                vx, vy = self.velocities[i]
+                x += vx
+                y += vy
+                self.positions[new_count] = (x, y)
+                self.velocities[new_count] = (vx, vy)
+                self.lives[new_count] = self.lives[i] - 1
+                new_count += 1
+        self.count = new_count
+    
     def draw(self, surface):
-        size = max(1, int(self.life / 5))
-        pygame.draw.circle(surface, COLOR_EXPLOSION, (int(self.pos.x), int(self.pos.y)), size)
-
-    def is_alive(self):
-        return self.life > 0
+        for i in range(self.count):
+            size = max(1, int(self.lives[i] / 5))
+            x, y = self.positions[i]
+            pygame.draw.circle(surface, COLOR_EXPLOSION, (int(x), int(y)), size)
 
 # -------------------------------
 # Globale Variablen & Initialisierung
@@ -251,12 +319,27 @@ bullets = []
 particles = []
 player_lives = 3
 score = 0
+collision_check_counter = 0
+
+# Manager-Instanzen erstellen
+bullet_manager = BulletManager()
+particle_manager = ParticleManager()
 
 # Globale Variablen für gecachte Oberflächen
 score_surface = None
 lives_surface = None
 last_score = None
 last_lives = None
+
+# 2. Vorberechnete Sinus/Cosinus-Tabelle
+SIN_TABLE = array.array('f', [math.sin(math.radians(i)) for i in range(360)])
+COS_TABLE = array.array('f', [math.cos(math.radians(i)) for i in range(360)])
+
+def fast_rotate_vector(x, y, angle_deg):
+    angle_int = int(angle_deg) % 360
+    cos_val = COS_TABLE[angle_int]
+    sin_val = SIN_TABLE[angle_int]
+    return (x * cos_val - y * sin_val, x * sin_val + y * cos_val)
 
 def play_sound(sound):
     if SOUND_ENABLED:
@@ -274,10 +357,15 @@ def start_game():
     particles = []
     player_lives = 3
     score = 0
+    bullet_manager.count = 0  # Manager zurücksetzen
+    particle_manager.count = 0
 
 def create_explosion(pos, num_particles=10):
-    for _ in range(min(num_particles, 3)):
-        particles.append(Particle(pos))
+    for _ in range(min(num_particles, 2)):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(1, 2)
+        vel = pygame.Vector2(math.cos(angle) * speed, math.sin(angle) * speed)
+        particle_manager.add(pos, vel, random.randint(10, 20))
 
 # -------------------------------
 # Haupt-Spielschleife
@@ -303,7 +391,9 @@ while running:
                     game_state = STATE_PLAY
             elif game_state == STATE_PLAY:
                 if event.key == pygame.K_SPACE:
-                    bullets.append(spaceship.shoot())
+                    pos = spaceship.pos + rotate_vector((0, -spaceship.size), math.radians(spaceship.angle))
+                    vel = rotate_vector((0, -5), math.radians(spaceship.angle))
+                    bullet_manager.add(pos, vel)
                     play_sound(SOUND_SHOOT)
             elif game_state == STATE_GAMEOVER:
                 if event.key == pygame.K_RETURN:
@@ -338,42 +428,43 @@ while running:
     spaceship.update()
     for asteroid in asteroids:
         asteroid.update()
-    for bullet in bullets:
-        bullet.update()
-    bullets = [b for b in bullets if b.is_alive()]
-    for particle in particles:
-        particle.update()
-    particles = [p for p in particles if p.is_alive()]
+    bullet_manager.update()
+    particle_manager.update()
 
     # Kollision: Bullet vs. Asteroid
-    new_asteroids = []
-    for asteroid in asteroids:
-        hit = False
-        for bullet in bullets:
-            if check_collision_circle(bullet.pos, bullet.radius, asteroid.pos, asteroid.get_radius()):
-                hit = True
-                bullet.life = 0
-                create_explosion(asteroid.pos, 15)
-                play_sound(SOUND_EXPLOSION)
-                score += 100
-                break
-        if not hit:
-            new_asteroids.append(asteroid)
-    asteroids = new_asteroids
-    bullets = [b for b in bullets if b.is_alive()]
+    collision_check_counter = (collision_check_counter + 1) % 2
+    
+    if collision_check_counter == 0:  # Nur jeden zweiten Frame
+        new_asteroids = []
+        for asteroid in asteroids:
+            hit = False
+            for i in range(bullet_manager.count):
+                bx, by = bullet_manager.positions[i]
+                if check_collision_circle(
+                    pygame.Vector2(bx, by), 4,  # 4 ist bullet radius
+                    asteroid.pos, asteroid.get_radius()):
+                    hit = True
+                    bullet_manager.lives[i] = 0
+                    create_explosion(asteroid.pos, 15)
+                    play_sound(SOUND_EXPLOSION)
+                    score += 100
+                    break
+            if not hit:
+                new_asteroids.append(asteroid)
+        asteroids = new_asteroids
 
-    # Kollision: Spaceship vs. Asteroid
-    for asteroid in asteroids:
-        if check_collision_circle(spaceship.pos, spaceship.get_radius(),
-                                  asteroid.pos, asteroid.get_radius()):
-            create_explosion(spaceship.pos, 30)
-            player_lives -= 1
-            spaceship.pos = pygame.Vector2(WIDTH // 2, HEIGHT // 2)
-            spaceship.vel = pygame.Vector2(0, 0)
-            spaceship.angle = 0
-            if player_lives <= 0:
-                game_state = STATE_GAMEOVER
-            break
+        # Kollision: Spaceship vs. Asteroid
+        for asteroid in asteroids:
+            if check_collision_circle(spaceship.pos, spaceship.get_radius(),
+                                    asteroid.pos, asteroid.get_radius()):
+                create_explosion(spaceship.pos, 30)
+                player_lives -= 1
+                spaceship.pos = pygame.Vector2(WIDTH // 2, HEIGHT // 2)
+                spaceship.vel = pygame.Vector2(0, 0)
+                spaceship.angle = 0
+                if player_lives <= 0:
+                    game_state = STATE_GAMEOVER
+                break
 
     if not asteroids:
         asteroids = [Asteroid() for _ in range(5)]
@@ -383,10 +474,8 @@ while running:
     spaceship.draw(screen)
     for asteroid in asteroids:
         asteroid.draw(screen)
-    for bullet in bullets:
-        bullet.draw(screen)
-    for particle in particles:
-        particle.draw(screen)
+    bullet_manager.draw(screen)
+    particle_manager.draw(screen)
 
     # Leben links oben anzeigen
     if last_lives != player_lives:
