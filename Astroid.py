@@ -4,7 +4,7 @@ import random
 import sys
 import signal
 import psutil
-import subprocess
+import os
 
 pygame.init()
 
@@ -38,8 +38,14 @@ STATE_GAMEOVER = 2
 # Hilfsfunktionen
 # -------------------------------
 def render_text(text, size, color=COLOR_TEXT):
-    font = pygame.font.SysFont(None, size)
-    return font.render(text, True, color)
+    # Cache für Fonts hinzufügen
+    if not hasattr(render_text, 'font_cache'):
+        render_text.font_cache = {}
+    
+    if size not in render_text.font_cache:
+        render_text.font_cache[size] = pygame.font.SysFont(None, size)
+    
+    return render_text.font_cache[size].render(text, True, color)
 
 def center_text(rendered_surf, w, h):
     x = (w - rendered_surf.get_width()) // 2
@@ -58,14 +64,19 @@ def check_collision_circle(pos1, r1, pos2, r2):
     dist = pos1.distance_to(pos2)
     return dist < (r1 + r2)
 
-def get_gpu_temp():
-    try:
-        # vcgencmd liefert z. B. "temp=48.0'C\n"
-        temp_str = subprocess.check_output(["vcgencmd", "measure_temp"]).decode()
-        temp_val = temp_str.replace("temp=", "").replace("'C\n", "")
-        return float(temp_val)
-    except Exception:
-        return None
+def kill_unnecessary_processes():
+    # Liste von Prozessen, die beendet werden können
+    unnecessary_processes = {
+        'chromium', 'firefox', 'thunderbird', 'libreoffice',
+        'apache2', 'mysql', 'postgresql', 'nginx'
+    }
+    
+    for proc in psutil.process_iter(['name']):
+        try:
+            if proc.name().lower() in unnecessary_processes:
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
 
 # -------------------------------
 # Klassen
@@ -156,6 +167,8 @@ class Asteroid:
             x = r * math.cos(theta)
             y = r * math.sin(theta)
             self.points.append((x, y))
+        # Vorberechnen der transformierten Punkte
+        self.transformed_points = [(0, 0)] * len(self.points)
 
     def update(self):
         self.pos += self.vel
@@ -163,10 +176,13 @@ class Asteroid:
         if self.pos.x > WIDTH: self.pos.x = 0
         if self.pos.y < 0: self.pos.y = HEIGHT
         if self.pos.y > HEIGHT: self.pos.y = 0
+        
+        # Update der transformierten Punkte
+        for i, p in enumerate(self.points):
+            self.transformed_points[i] = (self.pos.x + p[0], self.pos.y + p[1])
 
     def draw(self, surface):
-        transformed_points = [(self.pos.x + p[0], self.pos.y + p[1]) for p in self.points]
-        pygame.draw.polygon(surface, COLOR_ASTEROID, transformed_points)
+        pygame.draw.polygon(surface, COLOR_ASTEROID, self.transformed_points)
 
     def get_radius(self):
         return self.radius
@@ -175,9 +191,9 @@ class Particle:
     def __init__(self, pos):
         self.pos = pygame.Vector2(pos)
         angle = random.uniform(0, 2 * math.pi)
-        speed = random.uniform(1, 3)
+        speed = random.uniform(1, 2)
         self.vel = pygame.Vector2(math.cos(angle), math.sin(angle)) * speed
-        self.life = random.randint(20, 40)
+        self.life = random.randint(10, 20)
 
     def update(self):
         self.pos += self.vel
@@ -206,6 +222,7 @@ player_lives = 3
 
 def start_game():
     global spaceship, asteroids, bullets, particles, player_lives
+    kill_unnecessary_processes()
     spaceship = Spaceship(WIDTH // 2, HEIGHT // 2)
     asteroids = [Asteroid() for _ in range(5)]
     bullets = []
@@ -213,7 +230,7 @@ def start_game():
     player_lives = 3
 
 def create_explosion(pos, num_particles=10):
-    for _ in range(num_particles):
+    for _ in range(min(num_particles, 5)):
         particles.append(Particle(pos))
 
 # -------------------------------
@@ -321,26 +338,6 @@ while running:
         bullet.draw(screen)
     for particle in particles:
         particle.draw(screen)
-
-    # Leben anzeigen
-    life_text = f"Lives: {player_lives}"
-    life_rendered = render_text(life_text, 24)
-    screen.blit(life_rendered, (10, 10))
-
-    # Metriken oben rechts anzeigen: FPS, CPU-Auslastung und GPU-Temperatur
-    cpu_usage = psutil.cpu_percent(interval=None)
-    gpu_temp = get_gpu_temp()
-    metrics_lines = [
-        f"FPS: {int(clock.get_fps())}",
-        f"CPU: {cpu_usage}%",
-    ]
-    if gpu_temp is not None:
-        metrics_lines.append(f"GPU Temp: {gpu_temp}°C")
-    y_offset = 0
-    for line in metrics_lines:
-        line_surf = render_text(line, 20)
-        screen.blit(line_surf, (WIDTH - line_surf.get_width() - 10, 10 + y_offset))
-        y_offset += line_surf.get_height()
 
     pygame.display.flip()
 
