@@ -111,10 +111,45 @@ function love.load()
         glitchInterval = math.random(2, 5),
         screenShakeAmount = 0.5  -- Neuer Wert für konstantes Zittern
     }
+    
+    -- Gamepad Konfiguration
+    gamepad = {
+        deadzone = 0.2,  -- Ignoriert kleine Stick-Bewegungen
+        connected = false
+    }
+    
+    -- Prüfe ob ein Gamepad verbunden ist
+    local joysticks = love.joystick.getJoysticks()
+    if #joysticks > 0 then
+        gamepad.device = joysticks[1]  -- Nimm das erste verbundene Gamepad
+        gamepad.connected = true
+    end
 end
 
 function love.update(dt)
     if gameState == "game" then
+        -- Gamepad Steuerung
+        if gamepad.connected then
+            -- Rotation mit linkem Stick
+            local leftX = gamepad.device:getAxis(1)
+            if math.abs(leftX) > gamepad.deadzone then
+                player.angle = player.angle + ROTATION_SPEED * dt * leftX
+            end
+            
+            -- Schub mit rechtem Trigger (2)
+            local trigger = gamepad.device:getAxis(6)
+            if trigger > -0.5 then  -- Trigger gedrückt
+                local thrust_x = math.cos(player.angle) * ACCELERATION * dt
+                local thrust_y = math.sin(player.angle) * ACCELERATION * dt
+                player.dx = player.dx + thrust_x
+                player.dy = player.dy + thrust_y
+                
+                if math.random() < 0.3 then
+                    createThrusterParticle()
+                end
+            end
+        end
+        
         -- Timer und Cooldowns aktualisieren
         if activeEffects.time_warp > 0 then
             activeEffects.time_warp = activeEffects.time_warp - dt
@@ -1442,5 +1477,33 @@ function drawCRTEffect()
                 glitchHeight
             )
         end
+    end
+end
+
+function love.gamepadpressed(joystick, button)
+    if button == "a" then  -- A-Button zum Schießen
+        if gameState == "game" then
+            shoot()
+        end
+    elseif button == "start" then  -- Start/Menü-Button
+        if gameState == "menu" then
+            gameState = "game"
+            resetGame()
+        elseif gameState == "gameover" then
+            gameState = "game"
+            resetGame()
+        end
+    end
+end
+
+-- Gamepad Verbindungs-Events
+function love.joystickadded(joystick)
+    gamepad.device = joystick
+    gamepad.connected = true
+end
+
+function love.joystickremoved(joystick)
+    if gamepad.device == joystick then
+        gamepad.connected = false
     end
 end 
