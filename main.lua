@@ -100,6 +100,17 @@ function love.load()
     titleFont = love.graphics.newFont(72)
     subtitleFont = love.graphics.newFont(36)
     defaultFont = love.graphics.getFont()  -- Speichere Standard-Font
+    
+    -- CRT Effekt Variablen
+    crtEffect = {
+        scanlineHeight = 2,
+        scanlineAlpha = 0.2,    -- Von 0.1 auf 0.2 erhöht
+        glitchTimer = 0,
+        glitchDuration = 0,
+        glitchOffset = 0,
+        glitchInterval = math.random(2, 5),
+        screenShakeAmount = 0.5  -- Neuer Wert für konstantes Zittern
+    }
 end
 
 function love.update(dt)
@@ -283,6 +294,22 @@ function love.update(dt)
         -- Neue Update-Funktion für Power-ups
         updatePowerups(effectiveDt)
     end
+    
+    -- Glitch Timer aktualisieren
+    if gameState == "menu" or gameState == "gameover" then
+        crtEffect.glitchTimer = crtEffect.glitchTimer + dt
+        
+        if crtEffect.glitchTimer >= crtEffect.glitchInterval then
+            crtEffect.glitchTimer = 0
+            crtEffect.glitchDuration = 0.2
+            crtEffect.glitchOffset = math.random(-10, 10)
+            crtEffect.glitchInterval = math.random(2, 5)  -- Neues zufälliges Intervall
+        end
+        
+        if crtEffect.glitchDuration > 0 then
+            crtEffect.glitchDuration = crtEffect.glitchDuration - dt
+        end
+    end
 end
 
 function love.draw()
@@ -307,6 +334,7 @@ function love.draw()
         textWidth = defaultFont:getWidth(text) * 1.5
         love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+30, 0, 1.5, 1.5)
         
+        drawCRTEffect()
     elseif gameState == "game" then
         -- Screen Shake Effekt
         if screenShake.duration > 0 then
@@ -500,6 +528,7 @@ function love.draw()
             y = y + 20
         end
         
+        drawCRTEffect()
     elseif gameState == "gameover" then
         -- ASTEROIDS mit großer Schriftart
         love.graphics.setFont(titleFont)
@@ -606,6 +635,8 @@ function love.draw()
                 3.5)  -- Gleiche Größe wie im Spiel
         end
         love.graphics.print("Triple Shot", startX + spacing*3 - 30, iconY + 25, 0, 1, 1)
+        
+        drawCRTEffect()
     end
 end
 
@@ -1353,4 +1384,59 @@ function createPhotonBlast()
     
     -- Spezieller Sound für Photon Blast
     playSound("photon_blast")
+end
+
+-- Neue Funktion für CRT-Effekte
+function drawCRTEffect()
+    -- Konstantes Bildschirmzittern
+    local shakeX = math.random(-1, 1) * crtEffect.screenShakeAmount
+    local shakeY = math.random(-1, 1) * crtEffect.screenShakeAmount
+    love.graphics.translate(shakeX, shakeY)
+    
+    -- Scanlines mit Bewegung
+    love.graphics.setColor(0, 0, 0, crtEffect.scanlineAlpha)
+    local timeOffset = love.timer.getTime() * 30  -- Bewegungsgeschwindigkeit
+    for y = 0, HEIGHT + crtEffect.scanlineHeight * 2 do
+        if (y + math.floor(timeOffset)) % (crtEffect.scanlineHeight * 2) == 0 then
+            love.graphics.rectangle("fill", 0, y, WIDTH, crtEffect.scanlineHeight)
+        end
+    end
+    
+    -- Dunklere vertikale Linien
+    love.graphics.setColor(0, 0, 0, 0.1)
+    for x = 0, WIDTH, 4 do
+        love.graphics.line(x, 0, x, HEIGHT)
+    end
+    
+    -- Glitch Effekt
+    if crtEffect.glitchDuration > 0 then
+        -- Horizontale Verschiebung
+        love.graphics.setColor(1, 1, 1, 0.1)
+        local glitchY = math.random(0, HEIGHT)
+        local glitchHeight = math.random(10, 30)
+        love.graphics.rectangle("fill", 
+            crtEffect.glitchOffset, 
+            glitchY, 
+            WIDTH, 
+            glitchHeight
+        )
+        
+        -- RGB Split mit stärkerem Effekt
+        if math.random() < 0.3 then
+            love.graphics.setColor(1, 0, 0, 0.3)  -- Stärkeres Rot
+            love.graphics.rectangle("fill", 
+                crtEffect.glitchOffset + 8,  -- Größerer Offset
+                glitchY + 8, 
+                WIDTH, 
+                glitchHeight
+            )
+            love.graphics.setColor(0, 1, 0, 0.3)  -- Stärkeres Grün
+            love.graphics.rectangle("fill", 
+                crtEffect.glitchOffset - 8, 
+                glitchY - 8, 
+                WIDTH, 
+                glitchHeight
+            )
+        end
+    end
 end 
