@@ -95,6 +95,11 @@ function love.load()
         time_warp_cooldown = 0,
         triple_shot_cooldown = 0
     }
+    
+    -- Große Schriftart für Überschriften laden
+    titleFont = love.graphics.newFont(72)
+    subtitleFont = love.graphics.newFont(36)
+    defaultFont = love.graphics.getFont()  -- Speichere Standard-Font
 end
 
 function love.update(dt)
@@ -282,23 +287,24 @@ end
 
 function love.draw()
     if gameState == "menu" then
-        local font = love.graphics.getFont()
-        
-        -- ASTEROIDS
-        local text = "ASTEROIDS"
-        local textWidth = font:getWidth(text) * 4.5
+        -- ASTEROIDS mit großer Schriftart
+        love.graphics.setFont(titleFont)
+        text = "ASTEROIDS"
+        textWidth = titleFont:getWidth(text)
         love.graphics.setColor(1, 1, 0)
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/3, 0, 4.5, 4.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/3)
         
-        -- made in Berlin
+        -- made in Berlin mit mittlerer Schriftart
+        love.graphics.setFont(subtitleFont)
         text = "made in Berlin"
-        textWidth = font:getWidth(text) * 1.5
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/3+60, 0, 1.5, 1.5)
+        textWidth = subtitleFont:getWidth(text)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/3 + 80)
         
-        -- Press SPACE
+        -- Rest mit Standard-Font
+        love.graphics.setFont(defaultFont)
         love.graphics.setColor(1, 1, 1)
         text = "Press SPACE to start"
-        textWidth = font:getWidth(text) * 1.5
+        textWidth = defaultFont:getWidth(text) * 1.5
         love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+30, 0, 1.5, 1.5)
         
     elseif gameState == "game" then
@@ -495,45 +501,46 @@ function love.draw()
         end
         
     elseif gameState == "gameover" then
-        local font = love.graphics.getFont()
-        
-        -- ASTEROIDS (höher)
+        -- ASTEROIDS mit großer Schriftart
+        love.graphics.setFont(titleFont)
         text = "ASTEROIDS"
-        textWidth = font:getWidth(text) * 4.5
+        textWidth = titleFont:getWidth(text)
         love.graphics.setColor(1, 1, 1)
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/5, 0, 4.5, 4.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/5)
         
-        -- made in Berlin (entsprechend angepasst)
+        -- made in Berlin mit mittlerer Schriftart
+        love.graphics.setFont(subtitleFont)
         text = "made in Berlin"
-        textWidth = font:getWidth(text) * 1.5
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/5+60, 0, 1.5, 1.5)
+        textWidth = subtitleFont:getWidth(text)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/5 + 80)
         
-        -- GAME OVER (höher)
+        -- GAME OVER mit großer Schriftart
+        love.graphics.setFont(titleFont)
         text = "GAME OVER"
-        textWidth = font:getWidth(text) * 5.85
+        textWidth = titleFont:getWidth(text)
         love.graphics.setColor(1, 0, 0)
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2-60, 0, 5.85, 5.85)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2 - 60)
         
         -- Score (angepasst)
-        love.graphics.setColor(1, 1, 1)
+        love.graphics.setFont(defaultFont)
         text = "Score: " .. score
-        textWidth = font:getWidth(text) * 1.5
+        textWidth = defaultFont:getWidth(text) * 1.5
         love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+30, 0, 1.5, 1.5)
         
         -- Highscore (angepasst)
         text = "Highscore: " .. highscore
-        textWidth = font:getWidth(text) * 1.5
+        textWidth = defaultFont:getWidth(text) * 1.5
         love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+75, 0, 1.5, 1.5)
         
         -- Press SPACE (angepasst)
         text = "Press SPACE to restart"
-        textWidth = font:getWidth(text) * 1.5
+        textWidth = defaultFont:getWidth(text) * 1.5
         love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+120, 0, 1.5, 1.5)
         
         -- Item Info Header (höher)
         love.graphics.setColor(1, 1, 1)
         text = "Item Info:"
-        textWidth = font:getWidth(text) * 1.2
+        textWidth = defaultFont:getWidth(text) * 1.2
         love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+180, 0, 1.2, 1.2)
 
         -- Item Icons und Beschreibungen (entsprechend angepasst)
