@@ -66,9 +66,39 @@ def create_thruster_sound():
     # Sound speichern
     wavfile.write('thruster.wav', sample_rate, signal)
 
+def create_powerup_sound():
+    # Power-up Sound mit aufsteigender Frequenz und Harmonischen
+    sample_rate = 22050
+    duration = 0.3
+    t = np.linspace(0, duration, int(sample_rate * duration))
+    
+    # Aufsteigende Hauptfrequenz
+    freq_start = 300
+    freq_end = 900
+    frequency = np.linspace(freq_start, freq_end, len(t))
+    
+    # Hauptton plus Harmonische
+    waveform = np.sin(2 * np.pi * frequency * t) * 0.5
+    waveform += np.sin(4 * np.pi * frequency * t) * 0.25  # Erste Harmonische
+    waveform += np.sin(6 * np.pi * frequency * t) * 0.125  # Zweite Harmonische
+    
+    # Hüllkurve mit schnellem Anstieg und langsamem Abfall
+    envelope = np.exp(-t * 5)
+    envelope[:int(len(t)*0.1)] = np.linspace(0, 1, int(len(t)*0.1))
+    waveform = waveform * envelope
+    
+    # Leichtes Vibrato
+    vibrato = np.sin(2 * np.pi * 30 * t) * 0.1
+    waveform = waveform * (1 + vibrato)
+    
+    # Normalisieren und konvertieren
+    waveform = np.int16(waveform * 32767)
+    wavfile.write('powerup.wav', sample_rate, waveform)
+
 if __name__ == '__main__':
     print("Generiere Sound-Effekte...")
     create_shoot_sound()
     create_explosion_sound()
     create_thruster_sound()
+    create_powerup_sound()
     print("Fertig! Sound-Dateien wurden erstellt.") 
