@@ -149,7 +149,7 @@ function love.update(dt)
             
             -- Asteroiden nachspawnen
             if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
-                if math.random() < 0.20 then  -- Von 0.05 (5%) auf 0.20 (20%) erhöht für Tests
+                if math.random() < 0.05 then  -- Von 0.20 (20%) zurück auf 0.05 (5%)
                     createPowerup()
                 else
                     -- Normaler Asteroiden-Spawn Code...
@@ -223,7 +223,7 @@ function love.update(dt)
             
             -- Asteroiden nachspawnen
             if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
-                if math.random() < 0.20 then  -- Von 0.05 (5%) auf 0.20 (20%) erhöht für Tests
+                if math.random() < 0.05 then  -- Von 0.20 (20%) zurück auf 0.05 (5%)
                     createPowerup()
                 else
                     -- Normaler Asteroiden-Spawn Code...
