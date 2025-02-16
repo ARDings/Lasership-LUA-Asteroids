@@ -336,6 +336,10 @@ function love.draw()
         
         drawCRTEffect()
     elseif gameState == "game" then
+        -- Sicherstellen, dass Glitch-Effekt deaktiviert ist
+        crtEffect.glitchDuration = 0
+        crtEffect.glitchTimer = 0
+        
         -- Screen Shake Effekt
         if screenShake.duration > 0 then
             local dx = love.math.random(-screenShake.intensity, screenShake.intensity)
