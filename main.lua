@@ -8,7 +8,7 @@ function love.load()
     MAX_ASTEROIDS = 5
     DIFFICULTY_INCREASE_TIME = 10  -- Sekunden
     difficulty_timer = 0  -- Hier initialisieren!
-    COLLISION_CHECK_INTERVAL = 0.1  -- Längeres Intervall
+    COLLISION_CHECK_INTERVAL = 0.05  -- Von 0.1 auf 0.05 Sekunden
     collision_timer = 0
     
     -- Screen Shake als globale Variable
@@ -46,7 +46,8 @@ function love.load()
     sounds = {
         shoot = love.audio.newSource("shoot.wav", "static"),
         explosion = love.audio.newSource("explosion.wav", "static"),
-        powerup = love.audio.newSource("powerup.wav", "static")  -- Neuer Sound
+        powerup = love.audio.newSource("powerup.wav", "static"),  -- Neuer Sound
+        photon_blast = love.audio.newSource("photon_blast.wav", "static")  -- Neuer Sound
     }
     
     -- Sound-Einstellungen
@@ -56,6 +57,8 @@ function love.load()
     sounds.explosion:setPitch(0.5)
     sounds.powerup:setVolume(1.0)  -- Volle Lautstärke
     sounds.powerup:setPitch(1.2)   -- Etwas höher gepitcht
+    sounds.photon_blast:setVolume(1.0)  -- Volle Lautstärke
+    sounds.photon_blast:setPitch(1.2)   -- Etwas höher gepitcht
     
     -- Spiel starten
     resetGame()
@@ -76,88 +79,204 @@ function love.load()
     oneUpTimer = 0  -- Global machen
     showOneUp = false
     screenFlashTimer = 0
+    
+    -- In love.load() nach den anderen Variablen
+    POWERUP_TYPES = {
+        EXTRA_LIFE = "extra_life",
+        TIME_WARP = "time_warp",
+        PHOTON_BLAST = "photon_blast",
+        TRIPLE_SHOT = "triple_shot"
+    }
+    
+    -- Aktive Power-up Effekte
+    activeEffects = {
+        time_warp = 0,    -- Verbleibende Zeit
+        triple_shot = 0,
+        time_warp_cooldown = 0,
+        triple_shot_cooldown = 0
+    }
 end
 
 function love.update(dt)
     if gameState == "game" then
-        updatePlayer(dt)
-        updateBullets(dt)
-        updateAsteroids(dt)
-        updateParticles(dt)
-        updateThrusterParticles(dt)
-        
-        -- Kollisionen nur alle 50ms prüfen
-        collision_timer = collision_timer + dt
-        if collision_timer >= COLLISION_CHECK_INTERVAL then
-            checkCollisions()
-            collision_timer = 0
-        end
-        
-        -- Schwierigkeit erhöhen
-        difficulty_timer = difficulty_timer + dt
-        if difficulty_timer >= DIFFICULTY_INCREASE_TIME then
-            difficulty_timer = 0
-            MAX_ASTEROIDS = MAX_ASTEROIDS + 1
-        end
-        
-        -- Asteroiden nachspawnen
-        if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
-            if math.random() < 0.20 then  -- Von 0.05 (5%) auf 0.20 (20%) erhöht für Tests
-                createPowerup()
-            else
-                -- Normaler Asteroiden-Spawn Code...
-                local side = math.random(1, 4)
-                local x, y
-                if side == 1 then     -- oben
-                    x = math.random(0, WIDTH)
-                    y = -50
-                elseif side == 2 then -- rechts
-                    x = WIDTH + 50
-                    y = math.random(0, HEIGHT)
-                elseif side == 3 then -- unten
-                    x = math.random(0, WIDTH)
-                    y = HEIGHT + 50
-                else                  -- links
-                    x = -50
-                    y = math.random(0, HEIGHT)
-                end
-                
-                -- Richtung zur Mitte mit Zufallsabweichung
-                local angle = math.atan2(HEIGHT/2 - y, WIDTH/2 - x)
-                angle = angle + math.random(-0.5, 0.5)
-                local speed = math.random(50, 150)
-                
-                local asteroid = {
-                    x = x,
-                    y = y,
-                    dx = math.cos(angle) * speed,
-                    dy = math.sin(angle) * speed,
-                    radius = 40,
-                    angle = 0,
-                    spin = math.random(-3, 3),
-                    points = generateAsteroidPoints(40)
-                }
-                
-                -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
-                if x == nil and y == nil then
-                    local dx = asteroid.x - player.x
-                    local dy = asteroid.y - player.y
-                    local dist = math.sqrt(dx*dx + dy*dy)
-                    if dist < 100 then  -- Zu nah am Spieler
-                        asteroid.x = (asteroid.x + WIDTH/2) % WIDTH
-                        asteroid.y = (asteroid.y + HEIGHT/2) % HEIGHT
-                    end
-                end
-                
-                table.insert(asteroids, asteroid)
+        -- Timer und Cooldowns aktualisieren
+        if activeEffects.time_warp > 0 then
+            activeEffects.time_warp = activeEffects.time_warp - dt
+            if activeEffects.time_warp <= 0 then
+                activeEffects.time_warp = 0
             end
         end
         
-        -- Screen Shake Effekt
+        -- Triple Shot Timer aktualisieren
+        if activeEffects.triple_shot > 0 then
+            activeEffects.triple_shot = activeEffects.triple_shot - dt
+            if activeEffects.triple_shot <= 0 then
+                activeEffects.triple_shot = 0
+            end
+        end
+        
+        -- Cooldowns aktualisieren
+        activeEffects.time_warp_cooldown = math.max(0, activeEffects.time_warp_cooldown - dt)
+        activeEffects.triple_shot_cooldown = math.max(0, activeEffects.triple_shot_cooldown - dt)
+        
+        -- Screen Shake aktualisieren
         updateScreenShake(dt)
         
+        -- Time Warp Effekt auf dt anwenden
+        local effectiveDt = dt
+        if activeEffects.time_warp > 0 then
+            effectiveDt = dt * 0.3  -- Asteroiden auf 30% Geschwindigkeit
+            updatePlayer(dt)        -- Spieler mit normaler Geschwindigkeit
+            updateBullets(dt)       -- Schüsse mit normaler Geschwindigkeit
+            updateAsteroids(effectiveDt)  -- Asteroiden verlangsamt
+            updateParticles(effectiveDt)  -- Partikel verlangsamt
+            updateThrusterParticles(dt)   -- Thruster normal
+            updatePowerups(effectiveDt)   -- Power-ups verlangsamt
+            
+            -- Kollisionen nur alle 50ms prüfen
+            collision_timer = collision_timer + dt
+            if collision_timer >= COLLISION_CHECK_INTERVAL then
+                checkCollisions()
+                collision_timer = 0
+            end
+            
+            -- Schwierigkeit erhöhen
+            difficulty_timer = difficulty_timer + dt
+            if difficulty_timer >= DIFFICULTY_INCREASE_TIME then
+                difficulty_timer = 0
+                MAX_ASTEROIDS = MAX_ASTEROIDS + 1
+            end
+            
+            -- Asteroiden nachspawnen
+            if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
+                if math.random() < 0.20 then  -- Von 0.05 (5%) auf 0.20 (20%) erhöht für Tests
+                    createPowerup()
+                else
+                    -- Normaler Asteroiden-Spawn Code...
+                    local side = math.random(1, 4)
+                    local x, y
+                    if side == 1 then     -- oben
+                        x = math.random(0, WIDTH)
+                        y = -50
+                    elseif side == 2 then -- rechts
+                        x = WIDTH + 50
+                        y = math.random(0, HEIGHT)
+                    elseif side == 3 then -- unten
+                        x = math.random(0, WIDTH)
+                        y = HEIGHT + 50
+                    else                  -- links
+                        x = -50
+                        y = math.random(0, HEIGHT)
+                    end
+                    
+                    -- Richtung zur Mitte mit Zufallsabweichung
+                    local angle = math.atan2(HEIGHT/2 - y, WIDTH/2 - x)
+                    angle = angle + math.random(-0.5, 0.5)
+                    local speed = math.random(50, 150)
+                    
+                    local asteroid = {
+                        x = x,
+                        y = y,
+                        dx = math.cos(angle) * speed,
+                        dy = math.sin(angle) * speed,
+                        radius = 40,
+                        angle = 0,
+                        spin = math.random(-3, 3),
+                        points = generateAsteroidPoints(40)
+                    }
+                    
+                    -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
+                    if x == nil and y == nil then
+                        local dx = asteroid.x - player.x
+                        local dy = asteroid.y - player.y
+                        local dist = math.sqrt(dx*dx + dy*dy)
+                        if dist < 100 then  -- Zu nah am Spieler
+                            asteroid.x = (asteroid.x + WIDTH/2) % WIDTH
+                            asteroid.y = (asteroid.y + HEIGHT/2) % HEIGHT
+                        end
+                    end
+                    
+                    table.insert(asteroids, asteroid)
+                end
+            end
+        else
+            -- Normale Updates...
+            updatePlayer(dt)
+            updateBullets(dt)
+            updateAsteroids(dt)
+            updateParticles(dt)
+            updateThrusterParticles(dt)
+            
+            -- Kollisionen nur alle 50ms prüfen
+            collision_timer = collision_timer + dt
+            if collision_timer >= COLLISION_CHECK_INTERVAL then
+                checkCollisions()
+                collision_timer = 0
+            end
+            
+            -- Schwierigkeit erhöhen
+            difficulty_timer = difficulty_timer + dt
+            if difficulty_timer >= DIFFICULTY_INCREASE_TIME then
+                difficulty_timer = 0
+                MAX_ASTEROIDS = MAX_ASTEROIDS + 1
+            end
+            
+            -- Asteroiden nachspawnen
+            if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
+                if math.random() < 0.20 then  -- Von 0.05 (5%) auf 0.20 (20%) erhöht für Tests
+                    createPowerup()
+                else
+                    -- Normaler Asteroiden-Spawn Code...
+                    local side = math.random(1, 4)
+                    local x, y
+                    if side == 1 then     -- oben
+                        x = math.random(0, WIDTH)
+                        y = -50
+                    elseif side == 2 then -- rechts
+                        x = WIDTH + 50
+                        y = math.random(0, HEIGHT)
+                    elseif side == 3 then -- unten
+                        x = math.random(0, WIDTH)
+                        y = HEIGHT + 50
+                    else                  -- links
+                        x = -50
+                        y = math.random(0, HEIGHT)
+                    end
+                    
+                    -- Richtung zur Mitte mit Zufallsabweichung
+                    local angle = math.atan2(HEIGHT/2 - y, WIDTH/2 - x)
+                    angle = angle + math.random(-0.5, 0.5)
+                    local speed = math.random(50, 150)
+                    
+                    local asteroid = {
+                        x = x,
+                        y = y,
+                        dx = math.cos(angle) * speed,
+                        dy = math.sin(angle) * speed,
+                        radius = 40,
+                        angle = 0,
+                        spin = math.random(-3, 3),
+                        points = generateAsteroidPoints(40)
+                    }
+                    
+                    -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
+                    if x == nil and y == nil then
+                        local dx = asteroid.x - player.x
+                        local dy = asteroid.y - player.y
+                        local dist = math.sqrt(dx*dx + dy*dy)
+                        if dist < 100 then  -- Zu nah am Spieler
+                            asteroid.x = (asteroid.x + WIDTH/2) % WIDTH
+                            asteroid.y = (asteroid.y + HEIGHT/2) % HEIGHT
+                        end
+                    end
+                    
+                    table.insert(asteroids, asteroid)
+                end
+            end
+        end
+        
         -- Neue Update-Funktion für Power-ups
-        updatePowerups(dt)
+        updatePowerups(effectiveDt)
     end
 end
 
@@ -190,6 +309,21 @@ function love.draw()
             love.graphics.translate(dx, dy)
         end
         
+        -- Time Warp visueller Effekt
+        if activeEffects.time_warp > 0 then
+            -- Blauen Schimmer um das Schiff
+            love.graphics.setColor(0, 0.5, 1, 0.3)
+            love.graphics.circle("fill", player.x, player.y, player.radius * 2)
+            
+            -- Verzerrte Raum-Zeit-Wellen
+            for i = 1, 3 do
+                local radius = (player.radius * 3) * i
+                local alpha = 0.2 - (i * 0.05)
+                love.graphics.setColor(0, 0.5, 1, alpha)
+                love.graphics.circle("line", player.x, player.y, radius + math.sin(love.timer.getTime() * 2) * 5)
+            end
+        end
+        
         -- Spieler zeichnen
         drawPlayer()
         
@@ -204,19 +338,23 @@ function love.draw()
         -- Partikel zeichnen
         for _, particle in ipairs(particles) do
             love.graphics.setColor(particle.color[1], particle.color[2], particle.color[3])
-            
-            -- Dreieck zeichnen
-            local vertices = {}
-            for _, point in ipairs(particle.points) do
-                local x = point[1]
-                local y = point[2]
-                -- Rotation anwenden
-                local rotated_x = x * math.cos(particle.rotation) - y * math.sin(particle.rotation)
-                local rotated_y = x * math.sin(particle.rotation) + y * math.cos(particle.rotation)
-                table.insert(vertices, particle.x + rotated_x)
-                table.insert(vertices, particle.y + rotated_y)
+            if particle.isBlast then
+                -- Energiewellen-Partikel als Kreise zeichnen
+                love.graphics.circle("line", particle.x, particle.y, particle.radius)
+            else
+                -- Dreieck zeichnen
+                local vertices = {}
+                for _, point in ipairs(particle.points) do
+                    local x = point[1]
+                    local y = point[2]
+                    -- Rotation anwenden
+                    local rotated_x = x * math.cos(particle.rotation) - y * math.sin(particle.rotation)
+                    local rotated_y = x * math.sin(particle.rotation) + y * math.cos(particle.rotation)
+                    table.insert(vertices, particle.x + rotated_x)
+                    table.insert(vertices, particle.y + rotated_y)
+                end
+                love.graphics.polygon("fill", vertices)
             end
-            love.graphics.polygon("fill", vertices)
         end
         
         -- Thruster-Partikel zeichnen (vor dem Schiff)
@@ -228,13 +366,11 @@ function love.draw()
         -- Power-ups zeichnen
         for _, powerup in ipairs(powerups) do
             if powerup.visible then
-                -- Hexagon zeichnen
-                love.graphics.setColor(0, 0.7, 0, powerup.alpha)  -- Grün mit Alpha
-                
-                -- Hexagon-Punkte
+                -- Hexagon-Rahmen für alle Power-ups
+                love.graphics.setColor(0, 0.7, 0, powerup.alpha)
                 local vertices = {}
                 for i = 1, 6 do
-                    local angle = (i-1) * math.pi / 3  -- 6 gleichmäßige Punkte
+                    local angle = (i-1) * math.pi / 3
                     local px = powerup.x + math.cos(angle + powerup.angle) * powerup.radius
                     local py = powerup.y + math.sin(angle + powerup.angle) * powerup.radius
                     table.insert(vertices, px)
@@ -242,19 +378,65 @@ function love.draw()
                 end
                 love.graphics.polygon("line", vertices)
                 
-                -- Mini-Raumschiff in der Mitte
-                love.graphics.setColor(0, 0.7, 0, powerup.alpha * 0.8)  -- Etwas transparenter
-                local shipScale = 0.3  -- Noch kleiner (von 0.4 auf 0.3)
-                local shipVertices = {}
-                for _, point in ipairs(player.points) do
-                    local x = point[1] * shipScale
-                    local y = point[2] * shipScale
-                    local rotated_x = x * math.cos(powerup.angle) - y * math.sin(powerup.angle)
-                    local rotated_y = x * math.sin(powerup.angle) + y * math.cos(powerup.angle)
-                    table.insert(shipVertices, powerup.x + rotated_x)
-                    table.insert(shipVertices, powerup.y + rotated_y)
+                -- Verschiedene Icons je nach Typ
+                if powerup.type == POWERUP_TYPES.EXTRA_LIFE then
+                    -- Mini-Raumschiff für Extra Leben
+                    love.graphics.setColor(0, 0.7, 0, powerup.alpha * 0.8)
+                    local shipScale = 0.3
+                    local shipVertices = {}
+                    for _, point in ipairs(player.points) do
+                        local x = point[1] * shipScale
+                        local y = point[2] * shipScale
+                        local rotated_x = x * math.cos(powerup.angle) - y * math.sin(powerup.angle)
+                        local rotated_y = x * math.sin(powerup.angle) + y * math.cos(powerup.angle)
+                        table.insert(shipVertices, powerup.x + rotated_x)
+                        table.insert(shipVertices, powerup.y + rotated_y)
+                    end
+                    love.graphics.polygon("line", shipVertices)
+                    
+                elseif powerup.type == POWERUP_TYPES.TIME_WARP then
+                    -- Uhr-Symbol für Time Warp
+                    love.graphics.setColor(0, 0.5, 1, powerup.alpha)  -- Blaue Farbe
+                    love.graphics.circle("line", powerup.x, powerup.y, powerup.radius * 0.6)
+                    -- Zeiger
+                    local angle1 = powerup.angle
+                    local angle2 = powerup.angle + math.pi / 2
+                    love.graphics.line(powerup.x, powerup.y,
+                        powerup.x + math.cos(angle1) * powerup.radius * 0.5,
+                        powerup.y + math.sin(angle1) * powerup.radius * 0.5)
+                    love.graphics.line(powerup.x, powerup.y,
+                        powerup.x + math.cos(angle2) * powerup.radius * 0.3,
+                        powerup.y + math.sin(angle2) * powerup.radius * 0.3)
+                    
+                elseif powerup.type == POWERUP_TYPES.PHOTON_BLAST then
+                    -- Explosions-Symbol für Photon Blast
+                    love.graphics.setColor(1, 1, 1, powerup.alpha)  -- Weiße Farbe
+                    for i = 1, 8 do
+                        local angle = (i-1) * math.pi / 4
+                        local inner = powerup.radius * 0.3
+                        local outer = powerup.radius * 0.7
+                        love.graphics.line(
+                            powerup.x + math.cos(angle + powerup.angle) * inner,
+                            powerup.y + math.sin(angle + powerup.angle) * inner,
+                            powerup.x + math.cos(angle + powerup.angle) * outer,
+                            powerup.y + math.sin(angle + powerup.angle) * outer
+                        )
+                    end
+                elseif powerup.type == POWERUP_TYPES.TRIPLE_SHOT then
+                    -- Triple Shot Symbol (3 Punkte)
+                    love.graphics.setColor(1, 0.7, 0, powerup.alpha)  -- Helleres Orange
+                    local spacing = powerup.radius * 0.4  -- Größerer Abstand (von 0.3 auf 0.4)
+                    local dotSize = 3.5  -- Etwas größere Punkte (von 3 auf 3.5)
+                    
+                    -- Drei Punkte zeichnen
+                    for i = -1, 1 do
+                        local xOffset = i * spacing
+                        love.graphics.circle("fill", 
+                            powerup.x + xOffset, 
+                            powerup.y, 
+                            dotSize)
+                    end
                 end
-                love.graphics.polygon("line", shipVertices)
             end
         end
         
@@ -287,6 +469,29 @@ function love.draw()
             -- Grüner Screen-Flash
             love.graphics.setColor(0, 1, 0, screenFlashTimer * 0.5)  -- Von 0.3 auf 0.5 erhöht (kräftiger)
             love.graphics.rectangle("fill", 0, 0, WIDTH, HEIGHT)
+        end
+        
+        -- Power-up Status
+        local y = 60  -- Startposition unter Lives
+        if activeEffects.time_warp > 0 then
+            love.graphics.setColor(0, 0.5, 1)
+            love.graphics.print("Time Warp: " .. string.format("%.1f", activeEffects.time_warp), 10, y)
+            y = y + 20
+        elseif activeEffects.time_warp_cooldown > 0 then
+            love.graphics.setColor(0.5, 0.5, 0.5)
+            love.graphics.print("Time Warp CD: " .. string.format("%.1f", activeEffects.time_warp_cooldown), 10, y)
+            y = y + 20
+        end
+        
+        -- Triple Shot Status
+        if activeEffects.triple_shot > 0 then
+            love.graphics.setColor(1, 0.5, 0)  -- Orange
+            love.graphics.print("Triple Shot: " .. string.format("%.1f", activeEffects.triple_shot), 10, y)
+            y = y + 20
+        elseif activeEffects.triple_shot_cooldown > 0 then
+            love.graphics.setColor(0.5, 0.5, 0.5)
+            love.graphics.print("Triple Shot CD: " .. string.format("%.1f", activeEffects.triple_shot_cooldown), 10, y)
+            y = y + 20
         end
         
     elseif gameState == "gameover" then
@@ -421,12 +626,24 @@ function updateParticles(dt)
         p.x = p.x + p.dx * dt
         p.y = p.y + p.dy * dt
         p.lifetime = p.lifetime - dt
-        p.rotation = p.rotation + p.rotationSpeed * dt  -- Rotation updaten
         
-        -- Nur die Farbe verblassen lassen
-        if p.color then
-            p.color[1] = p.color[1] * 0.98  -- Rot langsamer verblassen
-            p.color[2] = p.color[2] * 0.95  -- Grün schneller verblassen
+        -- Spezielle Behandlung für Blast-Partikel
+        if p.isBlast then
+            -- Partikel werden größer während sie sich ausbreiten
+            p.radius = p.radius + dt * 10
+            -- Verblassen
+            p.color[1] = p.color[1] * 0.95
+            p.color[2] = p.color[2] * 0.95
+            p.color[3] = p.color[3] * 0.95
+        else
+            -- Normale Partikel-Updates...
+            if p.rotation then
+                p.rotation = p.rotation + p.rotationSpeed * dt
+            end
+            if p.color then
+                p.color[1] = p.color[1] * 0.98
+                p.color[2] = p.color[2] * 0.95
+            end
         end
         
         if p.lifetime <= 0 then
@@ -463,19 +680,66 @@ function playSound(soundType)
     elseif soundType == "powerup" then
         sounds.powerup:stop()
         sounds.powerup:play()
+    elseif soundType == "photon_blast" then
+        sounds.photon_blast:stop()
+        sounds.photon_blast:play()
     end
 end
 
 function shoot()
-    local bullet = {
-        x = player.x + math.cos(player.angle) * player.radius,
-        y = player.y + math.sin(player.angle) * player.radius,
-        dx = math.cos(player.angle) * 500 * 1.2,  -- 20% schneller
-        dy = math.sin(player.angle) * 500 * 1.2,  -- 20% schneller
-        lifetime = 1.5,
-        length = 8  -- Länge des Strichs
-    }
-    table.insert(bullets, bullet)
+    if activeEffects.triple_shot > 0 then
+        -- Drei Schüsse mit Streuung
+        local spread = math.pi / 12  -- 15 Grad Streuung
+        
+        -- Mittlerer Schuss
+        local bullet1 = {
+            x = player.x + math.cos(player.angle) * player.radius,
+            y = player.y + math.sin(player.angle) * player.radius,
+            dx = math.cos(player.angle) * 500,
+            dy = math.sin(player.angle) * 500,
+            lifetime = 0.75,  -- Kürzere Reichweite
+            length = 8,
+            damage = 0.8  -- 80% Schaden
+        }
+        
+        -- Linker Schuss
+        local bullet2 = {
+            x = player.x + math.cos(player.angle - spread) * player.radius,
+            y = player.y + math.sin(player.angle - spread) * player.radius,
+            dx = math.cos(player.angle - spread) * 500,
+            dy = math.sin(player.angle - spread) * 500,
+            lifetime = 0.75,
+            length = 8,
+            damage = 0.8
+        }
+        
+        -- Rechter Schuss
+        local bullet3 = {
+            x = player.x + math.cos(player.angle + spread) * player.radius,
+            y = player.y + math.sin(player.angle + spread) * player.radius,
+            dx = math.cos(player.angle + spread) * 500,
+            dy = math.sin(player.angle + spread) * 500,
+            lifetime = 0.75,
+            length = 8,
+            damage = 0.8
+        }
+        
+        table.insert(bullets, bullet1)
+        table.insert(bullets, bullet2)
+        table.insert(bullets, bullet3)
+    else
+        -- Normaler einzelner Schuss
+        local bullet = {
+            x = player.x + math.cos(player.angle) * player.radius,
+            y = player.y + math.sin(player.angle) * player.radius,
+            dx = math.cos(player.angle) * 500 * 1.2,
+            dy = math.sin(player.angle) * 500 * 1.2,
+            lifetime = 1.5,
+            length = 8,
+            damage = 1.0  -- Voller Schaden
+        }
+        table.insert(bullets, bullet)
+    end
     playSound("shoot")
 end
 
@@ -633,15 +897,16 @@ function drawBullets()
 end
 
 function checkCollisions()
-    -- Schüsse gegen Asteroiden
+    -- Schüsse gegen Asteroiden - häufigere Prüfung
     for i = #bullets, 1, -1 do
         local bullet = bullets[i]
         for j = #asteroids, 1, -1 do
             local asteroid = asteroids[j]
+            -- Verbesserte Hitbox-Berechnung
             local dx = bullet.x - asteroid.x
             local dy = bullet.y - asteroid.y
             local distSq = dx*dx + dy*dy
-            local hitRadius = math.max(asteroid.radius, 15)
+            local hitRadius = asteroid.radius * 1.2  -- 20% größere Hitbox
             local radiusSq = hitRadius * hitRadius
             
             if distSq < radiusSq then
@@ -650,10 +915,9 @@ function checkCollisions()
                 table.remove(asteroids, j)
                 score = score + 100
                 
-                -- Weniger neue Asteroiden
-                if asteroid.radius >= MIN_ASTEROID_SIZE and #asteroids < MAX_ASTEROIDS_TOTAL - 1 then
+                if asteroid.radius >= MIN_ASTEROID_SIZE then
                     local newSize = asteroid.radius * 0.7
-                    createAsteroid(newSize, asteroid.x, asteroid.y)  -- Nur ein neuer Asteroid
+                    createAsteroid(newSize, asteroid.x, asteroid.y)
                 end
                 break
             end
@@ -849,6 +1113,19 @@ function createPowerup()
     angle = angle + math.random(-0.5, 0.5)
     local speed = math.random(50, 100)
     
+    -- Powerup-Typ direkt aus der Zufallszahl bestimmen
+    local powerupType
+    local rand = math.random()
+    if rand < 0.25 then
+        powerupType = POWERUP_TYPES.EXTRA_LIFE
+    elseif rand < 0.50 then
+        powerupType = POWERUP_TYPES.TIME_WARP
+    elseif rand < 0.75 then
+        powerupType = POWERUP_TYPES.PHOTON_BLAST
+    else
+        powerupType = POWERUP_TYPES.TRIPLE_SHOT
+    end
+    
     local powerup = {
         x = x,
         y = y,
@@ -859,9 +1136,26 @@ function createPowerup()
         spin = 2,
         blinkTimer = 0,
         visible = true,
-        alpha = 1.0  -- Für Transparenz-Animation
+        alpha = 1.0,
+        type = powerupType
     }
     table.insert(powerups, powerup)
+end
+
+-- Power-up Effekte aktivieren
+function activatePowerup(type)
+    if type == POWERUP_TYPES.EXTRA_LIFE then
+        player.lives = player.lives + 1
+        show1Up()
+    elseif type == POWERUP_TYPES.TIME_WARP and activeEffects.time_warp_cooldown <= 0 then
+        activeEffects.time_warp = 7  -- 7 Sekunden Dauer
+        activeEffects.time_warp_cooldown = 15
+    elseif type == POWERUP_TYPES.PHOTON_BLAST then
+        createPhotonBlast()
+    elseif type == POWERUP_TYPES.TRIPLE_SHOT and activeEffects.triple_shot_cooldown <= 0 then
+        activeEffects.triple_shot = 10  -- Von 8 auf 10 Sekunden erhöht
+        activeEffects.triple_shot_cooldown = 20
+    end
 end
 
 -- Neue Update-Funktion für Power-ups
@@ -901,11 +1195,10 @@ function updatePowerups(dt)
         local dy = player.y - powerup.y
         local distSq = dx*dx + dy*dy
         if distSq < (powerup.radius + player.radius)^2 then
-            player.lives = player.lives + 1
+            activatePowerup(powerup.type)
             screenFlashTimer = 0.3
             table.remove(powerups, i)
-            show1Up()
-            playSound("powerup")  -- Sound abspielen
+            playSound("powerup")
         end
     end
 end
@@ -913,4 +1206,74 @@ end
 function show1Up()
     oneUpTimer = 2  -- 2 Sekunden anzeigen
     showOneUp = true
+end
+
+-- Neue Funktion für die Photonenwelle
+function createPhotonBlast()
+    -- Visuelle Explosion
+    local blastParticles = 60
+    local blastRadius = 600
+    
+    -- Kreisförmige Energiewelle
+    for i = 1, blastParticles do
+        local angle = (i / blastParticles) * math.pi * 2
+        local speed = 800
+        
+        -- Energiepartikel
+        local particle = {
+            x = player.x,
+            y = player.y,
+            dx = math.cos(angle) * speed,
+            dy = math.sin(angle) * speed,
+            lifetime = 0.5,
+            radius = 4,
+            color = {1, 1, 1},
+            isBlast = true
+        }
+        table.insert(particles, particle)
+        
+        -- Zusätzliche Schüsse in alle Richtungen
+        local bullet = {
+            x = player.x + math.cos(angle) * player.radius,
+            y = player.y + math.sin(angle) * player.radius,
+            dx = math.cos(angle) * 600,
+            dy = math.sin(angle) * 600,
+            lifetime = 0.5,
+            length = 12,
+            damage = 1.5  -- Extra Schaden
+        }
+        table.insert(bullets, bullet)
+    end
+    
+    -- Schockwelle-Effekt
+    startScreenShake(0.2, 5)
+    
+    -- Asteroiden im Radius mit mehr Schaden
+    for i = #asteroids, 1, -1 do
+        local asteroid = asteroids[i]
+        local dx = asteroid.x - player.x
+        local dy = asteroid.y - player.y
+        local distSq = dx*dx + dy*dy
+        
+        if distSq < blastRadius * blastRadius then
+            -- Explosion an Asteroid-Position
+            createExplosion(asteroid.x, asteroid.y, asteroid.radius * 1.5)  -- Größere Explosion
+            
+            -- Alle Asteroiden werden zerstört, große werden geteilt
+            if asteroid.radius >= MIN_ASTEROID_SIZE * 2 then
+                local newSize = asteroid.radius * 0.4  -- Kleinere Teilstücke
+                for _ = 1, 2 do
+                    createAsteroid(newSize, asteroid.x, asteroid.y, 1.0)
+                end
+                score = score + 200  -- Mehr Punkte
+            else
+                score = score + 150
+            end
+            
+            table.remove(asteroids, i)
+        end
+    end
+    
+    -- Spezieller Sound für Photon Blast
+    playSound("photon_blast")
 end 
