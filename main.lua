@@ -542,9 +542,9 @@ function love.draw()
         local spacing = WIDTH/4     -- Von WIDTH/5 auf WIDTH/4 für bessere Zentrierung
         local startX = WIDTH/2 - spacing*1.5  -- Angepasst für 4 Items
 
-        -- Extra Life (Original Icon)
+        -- Extra Life (Original Icon, 50% größer)
         love.graphics.setColor(0, 0.7, 0, 1)  -- Volle Deckkraft
-        local shipScale = 0.3
+        local shipScale = 0.45  -- Von 0.3 auf 0.45 (50% größer)
         local shipVertices = {}
         for _, point in ipairs(player.points) do
             local x = point[1] * shipScale
