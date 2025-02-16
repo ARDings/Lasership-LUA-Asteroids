@@ -497,38 +497,108 @@ function love.draw()
     elseif gameState == "gameover" then
         local font = love.graphics.getFont()
         
-        -- ASTEROIDS
-        local text = "ASTEROIDS"
-        local textWidth = font:getWidth(text) * 4.5
+        -- ASTEROIDS (höher)
+        text = "ASTEROIDS"
+        textWidth = font:getWidth(text) * 4.5
         love.graphics.setColor(1, 1, 1)
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/4, 0, 4.5, 4.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/5, 0, 4.5, 4.5)
         
-        -- made in Berlin
+        -- made in Berlin (entsprechend angepasst)
         text = "made in Berlin"
         textWidth = font:getWidth(text) * 1.5
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/4+60, 0, 1.5, 1.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/5+60, 0, 1.5, 1.5)
         
-        -- GAME OVER (30% größer und mehr Abstand)
+        -- GAME OVER (höher)
         text = "GAME OVER"
         textWidth = font:getWidth(text) * 5.85
         love.graphics.setColor(1, 0, 0)
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2-30, 0, 5.85, 5.85)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2-60, 0, 5.85, 5.85)
         
-        -- Score (mehr Abstand nach GAME OVER)
+        -- Score (angepasst)
         love.graphics.setColor(1, 1, 1)
         text = "Score: " .. score
         textWidth = font:getWidth(text) * 1.5
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+60, 0, 1.5, 1.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+30, 0, 1.5, 1.5)
         
-        -- Highscore
+        -- Highscore (angepasst)
         text = "Highscore: " .. highscore
         textWidth = font:getWidth(text) * 1.5
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+105, 0, 1.5, 1.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+75, 0, 1.5, 1.5)
         
-        -- Press SPACE
+        -- Press SPACE (angepasst)
         text = "Press SPACE to restart"
         textWidth = font:getWidth(text) * 1.5
-        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+150, 0, 1.5, 1.5)
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+120, 0, 1.5, 1.5)
+        
+        -- Item Info Header (höher)
+        love.graphics.setColor(1, 1, 1)
+        text = "Item Info:"
+        textWidth = font:getWidth(text) * 1.2
+        love.graphics.print(text, WIDTH/2 - textWidth/2, HEIGHT/2+180, 0, 1.2, 1.2)
+
+        -- Item Icons und Beschreibungen (entsprechend angepasst)
+        local iconY = HEIGHT/2+220  -- Von HEIGHT/2+290 auf HEIGHT/2+220
+        local iconSize = 24
+        local spacing = WIDTH/4     -- Von WIDTH/5 auf WIDTH/4 für bessere Zentrierung
+        local startX = WIDTH/2 - spacing*1.5  -- Angepasst für 4 Items
+
+        -- Extra Life (Original Icon)
+        love.graphics.setColor(0, 0.7, 0, 1)  -- Volle Deckkraft
+        local shipScale = 0.3
+        local shipVertices = {}
+        for _, point in ipairs(player.points) do
+            local x = point[1] * shipScale
+            local y = point[2] * shipScale
+            table.insert(shipVertices, startX + x)
+            table.insert(shipVertices, iconY + y)
+        end
+        love.graphics.polygon("line", shipVertices)
+        love.graphics.print("Extra Life", startX - 30, iconY + 25, 0, 1, 1)
+
+        -- Time Warp (Original Icon)
+        love.graphics.setColor(0, 0.5, 1, 1)
+        love.graphics.circle("line", startX + spacing, iconY, iconSize/2)
+        local angle1 = love.timer.getTime() % (2 * math.pi)
+        local angle2 = angle1 + math.pi / 2
+        love.graphics.line(
+            startX + spacing,
+            iconY,
+            startX + spacing + math.cos(angle1) * iconSize/2,
+            iconY + math.sin(angle1) * iconSize/2
+        )
+        love.graphics.line(
+            startX + spacing,
+            iconY,
+            startX + spacing + math.cos(angle2) * iconSize/3,
+            iconY + math.sin(angle2) * iconSize/3
+        )
+        love.graphics.print("Time Warp", startX + spacing - 30, iconY + 25, 0, 1, 1)
+
+        -- Photon Blast (Original Icon)
+        love.graphics.setColor(1, 1, 1, 1)
+        for i = 1, 8 do
+            local angle = (i-1) * math.pi / 4
+            local inner = iconSize/3
+            local outer = iconSize/2
+            love.graphics.line(
+                startX + spacing*2 + math.cos(angle) * inner,
+                iconY + math.sin(angle) * inner,
+                startX + spacing*2 + math.cos(angle) * outer,
+                iconY + math.sin(angle) * outer
+            )
+        end
+        love.graphics.print("Photon Blast", startX + spacing*2 - 35, iconY + 25, 0, 1, 1)
+
+        -- Triple Shot (Original Icon)
+        love.graphics.setColor(1, 0.7, 0, 1)
+        local dotSpacing = iconSize/3
+        for i = -1, 1 do
+            love.graphics.circle("fill", 
+                startX + spacing*3 + i * dotSpacing, 
+                iconY, 
+                3.5)  -- Gleiche Größe wie im Spiel
+        end
+        love.graphics.print("Triple Shot", startX + spacing*3 - 30, iconY + 25, 0, 1, 1)
     end
 end
 
