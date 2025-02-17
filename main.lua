@@ -124,9 +124,47 @@ function love.load()
         gamepad.device = joysticks[1]  -- Nimm das erste verbundene Gamepad
         gamepad.connected = true
     end
+    
+    -- LED Setup (vereinfacht)
+    if love.system.getOS() == "Linux" then
+        -- Aktuelles Verzeichnis ermitteln
+        local current_dir = love.filesystem.getSource()
+        -- LED-Visualizer mit vollem Pfad starten
+        os.execute(string.format("cd %s && ./start_led.sh &", current_dir))
+        -- Warte kurz, damit der Visualizer starten kann
+        os.execute("sleep 0.5")
+        -- Pipe öffnen
+        apmPipe = io.open("/tmp/game_apm_pipe", "w")
+        lastLedUpdate = 0
+        lastLedState = ""  -- Speichert letzten LED-Zustand
+    end
 end
 
 function love.update(dt)
+    -- LED Update (außerhalb des game-States, damit es auch im gameover funktioniert)
+    if love.system.getOS() == "Linux" and apmPipe then
+        lastLedUpdate = (lastLedUpdate or 0) + dt
+        if lastLedUpdate >= 0.1 then  -- Häufigere Updates für bessere Reaktion
+            lastLedUpdate = 0
+            
+            -- Aktuellen Zustand erstellen
+            local currentState = string.format(
+                "state=%s,lives=%d,timewarp=%d,tripleshot=%d",
+                gameState,
+                player.lives,
+                activeEffects.time_warp > 0 and 1 or 0,
+                activeEffects.triple_shot > 0 and 1 or 0
+            )
+            
+            -- Nur senden wenn sich etwas geändert hat
+            if currentState ~= lastLedState then
+                apmPipe:write(currentState .. "\n")
+                apmPipe:flush()
+                lastLedState = currentState
+            end
+        end
+    end
+    
     if gameState == "game" then
         -- Gamepad Steuerung
         if gamepad.connected then
@@ -1505,5 +1543,11 @@ end
 function love.joystickremoved(joystick)
     if gamepad.device == joystick then
         gamepad.connected = false
+    end
+end
+
+function love.quit()
+    if apmPipe then
+        apmPipe:close()
     end
 end 
