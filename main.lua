@@ -137,31 +137,32 @@ function love.load()
         apmPipe = io.open("/tmp/game_apm_pipe", "w")
         lastLedUpdate = 0
         lastLedState = ""  -- Speichert letzten LED-Zustand
+        -- Initial LED-Status senden
+        if apmPipe then
+            apmPipe:write("state=menu,lives=3,timewarp=0,tripleshot=0\n")
+            apmPipe:flush()
+        end
     end
 end
 
 function love.update(dt)
-    -- LED Update (außerhalb des game-States, damit es auch im gameover funktioniert)
+    -- LED Update (außerhalb des game-States)
     if love.system.getOS() == "Linux" and apmPipe then
         lastLedUpdate = (lastLedUpdate or 0) + dt
-        if lastLedUpdate >= 0.1 then  -- Häufigere Updates für bessere Reaktion
+        if lastLedUpdate >= 0.1 then
             lastLedUpdate = 0
             
-            -- Aktuellen Zustand erstellen
+            -- Immer den aktuellen Zustand senden
             local currentState = string.format(
-                "state=%s,lives=%d,timewarp=%d,tripleshot=%d",
+                "state=%s,lives=%d,timewarp=%d,tripleshot=%d\n",
                 gameState,
-                player.lives,
-                activeEffects.time_warp > 0 and 1 or 0,
-                activeEffects.triple_shot > 0 and 1 or 0
+                player.lives or 0,
+                (gameState == "game" and activeEffects.time_warp > 0) and 1 or 0,
+                (gameState == "game" and activeEffects.triple_shot > 0) and 1 or 0
             )
             
-            -- Nur senden wenn sich etwas geändert hat
-            if currentState ~= lastLedState then
-                apmPipe:write(currentState .. "\n")
-                apmPipe:flush()
-                lastLedState = currentState
-            end
+            apmPipe:write(currentState)
+            apmPipe:flush()
         end
     end
     
@@ -1175,6 +1176,12 @@ function resetGame()
         duration = 0,
         intensity = 0
     }
+    
+    -- LED-Status nach Reset aktualisieren
+    if love.system.getOS() == "Linux" and apmPipe then
+        apmPipe:write("state=game,lives=3,timewarp=0,tripleshot=0\n")
+        apmPipe:flush()
+    end
 end
 
 function loadHighscore()
