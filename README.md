@@ -29,4 +29,45 @@ A modern take on the classic Asteroids game, built with LÖVE (Lua) and running 
 
 ## Installation
 
-1. Clone the repository:
+1. Clone the repository: bash
+git clone https://github.com/yourusername/asteroids-pi
+cd asteroids-pi
+
+2. Set up the Python virtual environment: bash
+python3 -m venv led_env
+source led_env/bin/activate
+pip install rpi_ws281x adafruit-circuitpython-neopixel
+
+3. Make the scripts executable: bash
+chmod +x start_led.sh
+chmod +x led_visualizer.py
+chmod +x reset_leds.py
+
+## Running the Game
+
+1. Reset the LED strip (optional): bash
+sudo python3 reset_leds.py
+2. Start the game: bash
+love .
+
+## Controls
+
+- Arrow Keys / Gamepad Left Stick: Rotate ship
+- Up Arrow / Gamepad Right Trigger: Thrust
+- Space / Gamepad A Button: Shoot
+- Escape: Quit game
+
+## LED Layout
+
+The game uses 6 LEDs in the following configuration:
+- LED 0: Time Warp power-up (Blue)
+- LED 1: Triple Shot power-up (Yellow)
+- LED 3-5: Lives remaining (Green)
+
+## Credits
+
+- Original Asteroids game by Atari
+- LÖVE framework (https://love2d.org)
+- Adafruit NeoPixel library
+
+
