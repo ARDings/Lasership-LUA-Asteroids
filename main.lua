@@ -1038,29 +1038,15 @@ function drawPlayer()
 end
 
 function drawAsteroid(asteroid)
-    -- Unverwundbare Asteroiden in Neon-Grün
-    if asteroid.invulnerable and asteroid.invulnerable > 0 then
-        if math.floor(asteroid.invulnerable * 10) % 2 == 0 then
-            -- Konvertiere Hex #afdf0e zu RGB (175/255, 223/255, 14/255)
-            love.graphics.setColor(0.686, 0.875, 0.055)  -- Neon-Grün
-        else
-            -- Konvertiere Hex #d9599f zu RGB (217/255, 89/255, 159/255)
-            love.graphics.setColor(0.851, 0.349, 0.624)  -- Rosa
-        end
-    else
-        -- Normale Asteroiden in Rosa (#d9599f)
-        love.graphics.setColor(0.851, 0.349, 0.624)
-    end
+    -- Alle Asteroiden in Rosa (#d9599f)
+    love.graphics.setColor(0.851, 0.349, 0.624)
     
     local vertices = {}
     for _, point in ipairs(asteroid.points) do
         local x = point[1]
         local y = point[2]
-        
-        -- Nur Rotation, keine Verformung mehr
         local rotated_x = x * math.cos(asteroid.angle) - y * math.sin(asteroid.angle)
         local rotated_y = x * math.sin(asteroid.angle) + y * math.cos(asteroid.angle)
-        
         table.insert(vertices, asteroid.x + rotated_x)
         table.insert(vertices, asteroid.y + rotated_y)
     end
@@ -1069,14 +1055,11 @@ function drawAsteroid(asteroid)
 end
 
 function drawBullets()
-    love.graphics.setColor(1, 1, 1)
+    love.graphics.setColor(1, 1, 0)  -- Gelb statt Weiß
     for _, bullet in ipairs(bullets) do
-        -- Berechne Endpunkt des Strichs basierend auf Bewegungsrichtung
         local angle = math.atan2(bullet.dy, bullet.dx)
         local endX = bullet.x + math.cos(angle) * bullet.length
         local endY = bullet.y + math.sin(angle) * bullet.length
-        
-        -- Zeichne Strich
         love.graphics.line(bullet.x, bullet.y, endX, endY)
     end
 end

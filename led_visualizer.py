@@ -2,17 +2,23 @@
 import board
 import neopixel
 import time
+import math
 
 # LED Strip Konfiguration
-LED_COUNT = 6  # Nur die ersten 6 LEDs nutzen
+LED_COUNT = 6
 LED_PIN = board.D18
-BRIGHTNESS = 0.5
+BRIGHTNESS = 0.2  # Basis-Helligkeit
 
 # Vorbereitete Farben
 OFF = (0, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
+
+def pulse_color(color):
+    """Erzeugt einen pulsierenden Effekt zwischen 5% und 20% Helligkeit"""
+    pulse = 0.05 + (math.sin(time.time() * 3) + 1) * 0.075  # Pulsiert zwischen 0.05 und 0.2
+    return tuple(int(c * pulse) for c in color)
 
 class LEDVisualizer:
     def __init__(self):
@@ -40,27 +46,26 @@ class LEDVisualizer:
             # Nur im Spielzustand LEDs aktualisieren
             if 'state=game' in data:
                 # Items (LEDs 0-1)
-                self.pixels[0] = BLUE if 'timewarp=1' in data else OFF
-                self.pixels[1] = YELLOW if 'tripleshot=1' in data else OFF
+                self.pixels[0] = pulse_color(BLUE) if 'timewarp=1' in data else OFF
+                self.pixels[1] = pulse_color(YELLOW) if 'tripleshot=1' in data else OFF
                 
                 # Leben (LEDs 3-5)
                 try:
                     lives = int(data.split('lives=')[1].split(',')[0])
                 except:
-                    lives = 0  # Fallback wenn Parse fehlschlägt
+                    lives = 0
                 
                 # Setze erst alle Leben-LEDs aus
                 for i in range(3, 6):
                     self.pixels[i] = OFF
                     
-                # Dann setze die aktiven Leben
+                # Dann setze die aktiven Leben mit Pulsieren
                 for i in range(lives):
-                    if i < 3:  # Sicherheitscheck
-                        self.pixels[i + 3] = GREEN
+                    if i < 3:
+                        self.pixels[i + 3] = pulse_color(GREEN)
                 
                 self.pixels.show()
         except:
-            # Im Fehlerfall alle LEDs aus
             self.pixels.fill(OFF)
             self.pixels.show()
 
@@ -71,7 +76,7 @@ class LEDVisualizer:
                     data = pipe.readline().strip()
                     if data:
                         self.update_display(data)
-                    time.sleep(0.02)  # Längere Pause (50Hz statt 100Hz)
+                    time.sleep(0.016)  # 60Hz Update für sanftes Pulsieren
         except KeyboardInterrupt:
             self.cleanup()
 
