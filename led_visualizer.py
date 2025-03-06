@@ -2,118 +2,109 @@
 import board
 import neopixel
 import time
-import math
+import os
+import sys
 
-# LED Strip Konfiguration
+# Einfachere Konfiguration
 LED_COUNT = 6
 LED_PIN = board.D18
 BRIGHTNESS = 0.2
 
-# Vorbereitete Farben
+# Einfache statische Farben ohne Pulsierung
 OFF = (0, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
-YELLOW = (255, 255, 0)
-
-def pulse_color(color):
-    """Sanftes Pulsieren zwischen 10% und 20% Helligkeit"""
-    pulse = 0.1 + (math.sin(time.time() * 2) + 1) * 0.05  # Pulsiert zwischen 0.1 und 0.2
-    return tuple(int(c * pulse) for c in color)
+GREEN = (0, 25, 0)  # Gedimmtes Grün für Stabilität
+BLUE = (0, 0, 25)   # Gedimmtes Blau
+YELLOW = (25, 25, 0) # Gedimmtes Gelb
 
 class LEDVisualizer:
     def __init__(self):
+        print("LED-Visualizer startet...")
         try:
-            # Explizit alle LEDs ausschalten bevor wir den Strip initialisieren
-            pixels_temp = neopixel.NeoPixel(LED_PIN, 12, brightness=0)  # Temporär alle möglichen LEDs
-            pixels_temp.fill(OFF)
-            pixels_temp.show()
-            del pixels_temp
-            
-            # Jetzt unseren eigentlichen Strip initialisieren
             self.pixels = neopixel.NeoPixel(
                 LED_PIN, 
                 LED_COUNT, 
                 brightness=BRIGHTNESS,
                 auto_write=False
             )
-            self.reset_leds()
-            
-            # Mehrmals resetten um sicherzugehen
-            for _ in range(3):
-                self.reset_leds()
-                time.sleep(0.1)
-                
+            self.clear_all()
+            print("Erfolgreich initialisiert")
         except Exception as e:
-            print(f"Fehler bei LED-Initialisierung: {e}")
+            print(f"Fehler: {e}")
             self.pixels = None
-
-    def reset_leds(self):
-        """Setzt alle LEDs zurück"""
+    
+    def clear_all(self):
+        """Alle LEDs aus"""
         if self.pixels:
-            self.pixels.fill(OFF)
-            # Explizit 2 und 6 ausschalten
-            self.pixels[2] = OFF
-            if len(self.pixels) > 6:
-                self.pixels[6] = OFF
-            self.pixels.show()
-
+            try:
+                self.pixels.fill(OFF)
+                self.pixels.show()
+            except:
+                pass
+    
     def update_display(self, data):
         if not self.pixels:
             return
-
+            
         try:
-            # Immer LEDs 2 und 6 ausschalten
-            self.pixels[2] = OFF
-            if len(self.pixels) > 6:  # Sicherheitscheck
-                self.pixels[6] = OFF
-
-            # Im Menu oder Game Over alles aus
+            # Vereinfachte Logik
             if 'state=menu' in data or 'state=gameover' in data:
-                self.reset_leds()
+                self.clear_all()
                 return
-
-            # Nur im Spielzustand LEDs aktualisieren
+            
             if 'state=game' in data:
-                # Erst alles aus
+                # Setze alle auf OFF
                 self.pixels.fill(OFF)
-                # Nochmal explizit 2 und 6 aus
-                self.pixels[2] = OFF
-                if len(self.pixels) > 6:
-                    self.pixels[6] = OFF
-
-                # Items (LEDs 0-1)
+                
+                # Power-ups - KEINE Pulsierung mehr (stabiler)
                 if 'timewarp=1' in data:
-                    self.pixels[0] = pulse_color(BLUE)
+                    self.pixels[0] = BLUE
                 if 'tripleshot=1' in data:
-                    self.pixels[1] = pulse_color(YELLOW)
-
-                # Leben (LEDs 3-5)
+                    self.pixels[1] = YELLOW
+                
+                # Leben
                 try:
                     lives = int(data.split('lives=')[1].split(',')[0])
                     for i in range(min(lives, 3)):
-                        self.pixels[i + 3] = pulse_color(GREEN)
+                        self.pixels[i + 3] = GREEN
                 except:
                     pass
-
+                
+                # Explizit LED 2 aus
+                self.pixels[2] = OFF
+                
+                # Anzeigen
                 self.pixels.show()
-
-        except Exception as e:
-            self.reset_leds()
+                
+        except:
+            # Bei Fehlern nichts tun (keine erneuten Fehler verursachen)
+            pass
 
     def run(self):
-        self.reset_leds()  # Sicherstellen, dass alle LEDs aus sind beim Start
-        try:
-            with open("/tmp/game_apm_pipe", 'r') as pipe:
-                while True:
-                    data = pipe.readline().strip()
-                    if data:
-                        self.update_display(data)
-                    time.sleep(0.033)  # ~30Hz Updates für bessere Performance
-        except KeyboardInterrupt:
-            self.reset_leds()
+        # Stelle sicher, dass Pipe existiert
+        pipe_path = "/tmp/game_apm_pipe"
+        if not os.path.exists(pipe_path):
+            try:
+                os.mkfifo(pipe_path)
+            except:
+                pass
+        
+        # Hauptschleife mit robuster Fehlerbehandlung
+        while True:
+            try:
+                with open(pipe_path, 'r') as pipe:
+                    print("Bereit und warte auf Daten...")
+                    while True:
+                        data = pipe.readline().strip()
+                        if data:
+                            self.update_display(data)
+                        time.sleep(0.1)  # Längere Pause (10 Updates/Sekunde)
+            except KeyboardInterrupt:
+                break
+            except:
+                time.sleep(1)  # Längere Pause bei Fehlern
 
     def cleanup(self):
-        self.reset_leds()
+        self.clear_all()
 
 if __name__ == "__main__":
     visualizer = LEDVisualizer()

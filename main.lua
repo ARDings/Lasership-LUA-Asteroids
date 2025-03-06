@@ -1,12 +1,21 @@
 function love.load()
+    -- FPS-Begrenzung
+    TARGET_FPS = 30
+    MIN_DT = 1/TARGET_FPS
+    
+    -- Für stabile Performance auf Raspberry Pi
+    if love.system.getOS() == "Linux" then
+        love.window.setVSync(0)  -- VSync ausschalten für manuelle Begrenzung
+    end
+    
     -- Konstanten
     WIDTH = 800
     HEIGHT = 600
     ACCELERATION = 300
     ROTATION_SPEED = 5
     FRICTION = 0.99
-    MAX_ASTEROIDS = 5
-    DIFFICULTY_INCREASE_TIME = 10  -- Sekunden
+    MAX_ASTEROIDS = 3
+    DIFFICULTY_INCREASE_TIME = 15
     difficulty_timer = 0  -- Hier initialisieren!
     COLLISION_CHECK_INTERVAL = 0.05  -- Von 0.1 auf 0.05 Sekunden
     collision_timer = 0
@@ -42,30 +51,51 @@ function love.load()
     score = 0
     highscore = loadHighscore()
     
-    -- Sounds laden und optimieren
+    -- Sounds laden und optimieren mit verbesserter Performance
     sounds = {
         shoot = love.audio.newSource("shoot.wav", "static"),
         explosion = love.audio.newSource("explosion.wav", "static"),
-        powerup = love.audio.newSource("powerup.wav", "static"),  -- Neuer Sound
-        photon_blast = love.audio.newSource("photon_blast.wav", "static")  -- Neuer Sound
+        powerup = love.audio.newSource("powerup.wav", "static"),
+        photon_blast = love.audio.newSource("photon_blast.wav", "static")
     }
     
-    -- Sound-Einstellungen
-    sounds.shoot:setVolume(1.0)
+    -- Sound-Einstellungen & Performance-Optimierung
+    for _, sound in pairs(sounds) do
+        sound:setVolume(1.0)
+        -- Wichtige Performance-Optimierung für Sounds
+        sound:setFilter({type = "lowpass", volume = 1.0})
+    end
+    
+    -- Spezifische Sound-Einstellungen
     sounds.shoot:setPitch(0.7)
-    sounds.explosion:setVolume(1.0)
     sounds.explosion:setPitch(0.5)
-    sounds.powerup:setVolume(1.0)  -- Volle Lautstärke
-    sounds.powerup:setPitch(1.2)   -- Etwas höher gepitcht
-    sounds.photon_blast:setVolume(1.0)  -- Volle Lautstärke
-    sounds.photon_blast:setPitch(1.2)   -- Etwas höher gepitcht
+    sounds.powerup:setPitch(1.2)
+    sounds.photon_blast:setPitch(1.2)
+    
+    -- Vorladen von Sound-Instanzen für häufig wiederkehrende Sounds
+    soundInstances = {
+        shoot = {},
+        explosion = {}
+    }
+    
+    -- Mehrere Instanzen vorladen für häufige Sounds
+    for i = 1, 8 do
+        soundInstances.shoot[i] = sounds.shoot:clone()
+        soundInstances.explosion[i] = sounds.explosion:clone()
+    end
+    
+    -- Sound-Zähler für Instance-Rotation
+    soundCounter = {
+        shoot = 1,
+        explosion = 1
+    }
     
     -- Spiel starten
     resetGame()
     
     -- Neue Konstanten
     MIN_ASTEROID_SIZE = 20
-    MAX_ASTEROIDS_TOTAL = 20  -- Weniger maximale Asteroiden
+    MAX_ASTEROIDS_TOTAL = 14  -- Weniger maximale Asteroiden
     MAX_PARTICLES = 100  -- Von 30 auf 100 erhöht
     MAX_THRUSTER_PARTICLES = 40  -- Neue Konstante für Thruster
     
@@ -143,20 +173,81 @@ function love.load()
             apmPipe:flush()
         end
     end
+    
+    -- Sound-Konfiguration für bessere Performance
+    love.audio.setVolume(0.8)  -- Gesamtlautstärke etwas reduzieren
+    love.audio.setDistanceModel("none")  -- Einfacheres Audiomodell
+    
+    -- Audio-Puffergrößen für Bluetooth-Kompatibilität anpassen
+    if love.system.getOS() == "Linux" then
+        love.audio.setMixWithSystem(false)  -- Wichtig für Raspberry Pi
+    end
+    
+    -- Schuss-Konfiguration
+    SHOT_COOLDOWN = 0.15  -- Minimale Zeit zwischen Schüssen (150ms)
+    lastShotTime = 0      -- Timer für den letzten Schuss
+    
+    -- Beste Performance für Schüsse
+    MAX_BULLETS = 10      -- Maximal 10 Schüsse gleichzeitig
+    
+    -- Erweiterte Sound-Steuerung mit Kategorien und Prioritäts-Timern
+    soundSystem = {
+        currentlyPlaying = {
+            shoot = false,
+            explosion = false,
+            powerup = false,
+            other = false
+        },
+        playingSource = {
+            shoot = nil,
+            explosion = nil,
+            powerup = nil,
+            other = nil
+        },
+        volume = 0.8,
+        cooldown = {
+            shoot = 0,
+            explosion = 0,
+            powerup = 0,
+            other = 0
+        },
+        priorityTimer = {     -- NEU: Timer für Prioritäts-Dauer
+            shoot = 0,
+            explosion = 0,
+            powerup = 0,
+            other = 0
+        }
+    }
+    
+    -- Sound-Kategorien definieren
+    soundCategories = {
+        shoot = "shoot",
+        explosion = "explosion",
+        powerup = "powerup",
+        photon_blast = "explosion"  -- Photon Blast ist auch eine Art Explosion
+    }
 end
 
 function love.update(dt)
-    -- LED Update (außerhalb des game-States)
+    -- FPS-Begrenzung auf 30
+    if dt < MIN_DT then
+        love.timer.sleep(MIN_DT - dt)
+    end
+    
+    -- LED-Update vereinfachen
     if love.system.getOS() == "Linux" and apmPipe then
         lastLedUpdate = (lastLedUpdate or 0) + dt
-        if lastLedUpdate >= 0.1 then
+        if lastLedUpdate >= 0.2 then  -- Reduziere auf 5 Updates pro Sekunde
             lastLedUpdate = 0
             
-            -- Immer den aktuellen Zustand senden
+            -- Kurze, robuste Statusnachricht
+            local lives = player.lives or 0
+            if gameState ~= "game" then lives = 0 end  -- Im Menu und GameOver
+            
             local currentState = string.format(
                 "state=%s,lives=%d,timewarp=%d,tripleshot=%d\n",
                 gameState,
-                player.lives or 0,
+                lives,
                 (gameState == "game" and activeEffects.time_warp > 0) and 1 or 0,
                 (gameState == "game" and activeEffects.triple_shot > 0) and 1 or 0
             )
@@ -166,7 +257,17 @@ function love.update(dt)
         end
     end
     
+    -- Häufigere Garbage Collection bei niedrigerem Timer, weniger intensiv
+    gcTimer = (gcTimer or 0) + dt
+    if gcTimer > 2 then  -- Alle 2 Sekunden statt 5
+        collectgarbage("step", 10)  -- Inkrementelle GC statt vollständiger Collection
+        gcTimer = 0
+    end
+    
     if gameState == "game" then
+        -- Aktualisiere Unverwundbarkeit
+        updateInvulnerability(dt)
+        
         -- Gamepad Steuerung
         if gamepad.connected then
             -- Rotation mit linkem Stick
@@ -238,57 +339,7 @@ function love.update(dt)
             end
             
             -- Asteroiden nachspawnen
-            if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
-                if math.random() < 0.05 then  -- Von 0.20 (20%) zurück auf 0.05 (5%)
-                    createPowerup()
-                else
-                    -- Normaler Asteroiden-Spawn Code...
-                    local side = math.random(1, 4)
-                    local x, y
-                    if side == 1 then     -- oben
-                        x = math.random(0, WIDTH)
-                        y = -50
-                    elseif side == 2 then -- rechts
-                        x = WIDTH + 50
-                        y = math.random(0, HEIGHT)
-                    elseif side == 3 then -- unten
-                        x = math.random(0, WIDTH)
-                        y = HEIGHT + 50
-                    else                  -- links
-                        x = -50
-                        y = math.random(0, HEIGHT)
-                    end
-                    
-                    -- Richtung zur Mitte mit Zufallsabweichung
-                    local angle = math.atan2(HEIGHT/2 - y, WIDTH/2 - x)
-                    angle = angle + math.random(-0.5, 0.5)
-                    local speed = math.random(50, 150)
-                    
-                    local asteroid = {
-                        x = x,
-                        y = y,
-                        dx = math.cos(angle) * speed,
-                        dy = math.sin(angle) * speed,
-                        radius = 40,
-                        angle = 0,
-                        spin = math.random(-3, 3),
-                        points = generateAsteroidPoints(40)
-                    }
-                    
-                    -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
-                    if x == nil and y == nil then
-                        local dx = asteroid.x - player.x
-                        local dy = asteroid.y - player.y
-                        local dist = math.sqrt(dx*dx + dy*dy)
-                        if dist < 100 then  -- Zu nah am Spieler
-                            asteroid.x = (asteroid.x + WIDTH/2) % WIDTH
-                            asteroid.y = (asteroid.y + HEIGHT/2) % HEIGHT
-                        end
-                    end
-                    
-                    table.insert(asteroids, asteroid)
-                end
-            end
+            spawnNewAsteroids(dt)
         else
             -- Normale Updates...
             updatePlayer(dt)
@@ -312,57 +363,7 @@ function love.update(dt)
             end
             
             -- Asteroiden nachspawnen
-            if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
-                if math.random() < 0.05 then  -- Von 0.20 (20%) zurück auf 0.05 (5%)
-                    createPowerup()
-                else
-                    -- Normaler Asteroiden-Spawn Code...
-                    local side = math.random(1, 4)
-                    local x, y
-                    if side == 1 then     -- oben
-                        x = math.random(0, WIDTH)
-                        y = -50
-                    elseif side == 2 then -- rechts
-                        x = WIDTH + 50
-                        y = math.random(0, HEIGHT)
-                    elseif side == 3 then -- unten
-                        x = math.random(0, WIDTH)
-                        y = HEIGHT + 50
-                    else                  -- links
-                        x = -50
-                        y = math.random(0, HEIGHT)
-                    end
-                    
-                    -- Richtung zur Mitte mit Zufallsabweichung
-                    local angle = math.atan2(HEIGHT/2 - y, WIDTH/2 - x)
-                    angle = angle + math.random(-0.5, 0.5)
-                    local speed = math.random(50, 150)
-                    
-                    local asteroid = {
-                        x = x,
-                        y = y,
-                        dx = math.cos(angle) * speed,
-                        dy = math.sin(angle) * speed,
-                        radius = 40,
-                        angle = 0,
-                        spin = math.random(-3, 3),
-                        points = generateAsteroidPoints(40)
-                    }
-                    
-                    -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
-                    if x == nil and y == nil then
-                        local dx = asteroid.x - player.x
-                        local dy = asteroid.y - player.y
-                        local dist = math.sqrt(dx*dx + dy*dy)
-                        if dist < 100 then  -- Zu nah am Spieler
-                            asteroid.x = (asteroid.x + WIDTH/2) % WIDTH
-                            asteroid.y = (asteroid.y + HEIGHT/2) % HEIGHT
-                        end
-                    end
-                    
-                    table.insert(asteroids, asteroid)
-                end
-            end
+            spawnNewAsteroids(dt)
         end
         
         -- Neue Update-Funktion für Power-ups
@@ -384,6 +385,9 @@ function love.update(dt)
             crtEffect.glitchDuration = crtEffect.glitchDuration - dt
         end
     end
+    
+    -- Sound-System aktualisieren
+    updateSoundSystem(dt)
 end
 
 function love.draw()
@@ -719,22 +723,14 @@ function love.draw()
 end
 
 function love.keypressed(key)
-    if key == 'escape' or (love.keyboard.isDown('lctrl') and key == 'c') then
+    if key == "escape" then
         love.event.quit()
-    end
-    
-    if key == "space" then
-        if gameState == "menu" then
-            -- Space startet das Spiel
-            gameState = "game"
+    elseif key == "space" then
+        if gameState == "game" then
+            shoot()  -- Die optimierte Funktion mit Cooldown
+        elseif gameState == "menu" or gameState == "gameover" then
             resetGame()
-        elseif gameState == "game" then
-            -- Space schießt während des Spiels
-            shoot()
-        elseif gameState == "gameover" then
-            -- Space startet neue Runde
             gameState = "game"
-            resetGame()
         end
     end
 end
@@ -775,19 +771,23 @@ function updatePlayer(dt)
 end
 
 function updateBullets(dt)
-    for i = #bullets, 1, -1 do
+    -- Verarbeite Bullets in Batches für bessere Performance
+    local batch_size = math.min(10, #bullets)  -- Maximal 10 auf einmal
+    
+    for i = #bullets, math.max(1, #bullets - batch_size), -1 do
         local bullet = bullets[i]
+        
+        -- Bewegung
         bullet.x = bullet.x + bullet.dx * dt
         bullet.y = bullet.y + bullet.dy * dt
+        
+        -- Lebensdauer reduzieren
         bullet.lifetime = bullet.lifetime - dt
         
-        -- Bildschirmgrenzen
-        if bullet.x < 0 then bullet.x = WIDTH end
-        if bullet.x > WIDTH then bullet.x = 0 end
-        if bullet.y < 0 then bullet.y = HEIGHT end
-        if bullet.y > HEIGHT then bullet.y = 0 end
-        
-        if bullet.lifetime <= 0 then
+        -- Schuss außerhalb des Bildschirms oder abgelaufen
+        if bullet.lifetime <= 0 or
+           bullet.x < -50 or bullet.x > WIDTH + 50 or
+           bullet.y < -50 or bullet.y > HEIGHT + 50 then
             table.remove(bullets, i)
         end
     end
@@ -807,30 +807,17 @@ function updateAsteroids(dt)
 end
 
 function updateParticles(dt)
+    -- Begrenze die Anzahl der aktiven Partikel
+    while #particles > MAX_PARTICLES do
+        table.remove(particles, 1)  -- Entferne älteste Partikel
+    end
+    
+    -- Schnelleres Rendering durch Vorberechnungen
     for i = #particles, 1, -1 do
         local p = particles[i]
         p.x = p.x + p.dx * dt
         p.y = p.y + p.dy * dt
         p.lifetime = p.lifetime - dt
-        
-        -- Spezielle Behandlung für Blast-Partikel
-        if p.isBlast then
-            -- Partikel werden größer während sie sich ausbreiten
-            p.radius = p.radius + dt * 10
-            -- Verblassen
-            p.color[1] = p.color[1] * 0.95
-            p.color[2] = p.color[2] * 0.95
-            p.color[3] = p.color[3] * 0.95
-        else
-            -- Normale Partikel-Updates...
-            if p.rotation then
-                p.rotation = p.rotation + p.rotationSpeed * dt
-            end
-            if p.color then
-                p.color[1] = p.color[1] * 0.98
-                p.color[2] = p.color[2] * 0.95
-            end
-        end
         
         if p.lifetime <= 0 then
             table.remove(particles, i)
@@ -839,6 +826,11 @@ function updateParticles(dt)
 end
 
 function updateThrusterParticles(dt)
+    -- Begrenze die Anzahl der aktiven Thruster-Partikel
+    while #thrusterParticles > MAX_THRUSTER_PARTICLES do
+        table.remove(thrusterParticles, 1)
+    end
+    
     for i = #thrusterParticles, 1, -1 do
         local p = thrusterParticles[i]
         p.x = p.x + p.dx * dt
@@ -856,77 +848,148 @@ function updateThrusterParticles(dt)
     end
 end
 
-function playSound(soundType)
-    if soundType == "shoot" then
-        sounds.shoot:stop()
-        sounds.shoot:play()
-    elseif soundType == "explosion" then
-        sounds.explosion:stop()
-        sounds.explosion:play()
-    elseif soundType == "powerup" then
-        sounds.powerup:stop()
-        sounds.powerup:play()
-    elseif soundType == "photon_blast" then
-        sounds.photon_blast:stop()
-        sounds.photon_blast:play()
+-- Verbesserte Sound-Funktion mit zeitlich begrenzten Prioritäten
+function playSound(name, priority)
+    -- Wenn kein passender Sound gefunden wird, abbrechen
+    if not sounds[name] then return end
+    
+    -- Bestimme Kategorie des Sounds
+    local category = soundCategories[name] or "other"
+    priority = priority or 1
+    
+    -- Modifizierte Prioritätsregeln:
+    -- 1. Explosionen haben Vorrang vor Schüssen für 1 Sekunde
+    -- 2. Sounds der gleichen Kategorie ersetzen sich
+    -- 3. Power-ups haben hohe Priorität
+    
+    -- Prüfe, ob eine höherrangige Kategorie mit aktivem Prioritäts-Timer läuft
+    if category == "shoot" and 
+       soundSystem.currentlyPlaying.explosion and 
+       soundSystem.priorityTimer.explosion > 0 then
+        -- Ignoriere Schüsse während Explosionen mit aktiver Priorität laufen
+        return
+    end
+    
+    -- Stoppe Sound der gleichen Kategorie, falls vorhanden
+    if soundSystem.playingSource[category] then
+        soundSystem.playingSource[category]:stop()
+        soundSystem.currentlyPlaying[category] = false
+    end
+    
+    -- Spiele den Sound
+    pcall(function()
+        -- Quelle auf aktuell abspielende Quelle setzen
+        soundSystem.playingSource[category] = sounds[name]
+        soundSystem.playingSource[category]:stop()  -- Zurücksetzen
+        soundSystem.playingSource[category]:play()
+        soundSystem.currentlyPlaying[category] = true
+        
+        -- Timer für die Dauer des Sounds setzen
+        soundSystem.cooldown[category] = 0.2  -- Angepasste Dauer
+        
+        -- Setze Prioritäts-Timer für bestimmte Kategorien
+        if category == "explosion" then
+            soundSystem.priorityTimer[category] = 1.0  -- 1 Sekunde Priorität
+        elseif category == "powerup" then
+            soundSystem.priorityTimer[category] = 0.5  -- 0.5 Sekunden Priorität
+        end
+    end)
+end
+
+-- Aktualisierte Sound-System-Update-Funktion mit Prioritäts-Timer
+function updateSoundSystem(dt)
+    -- Kategorien durchgehen
+    for category, _ in pairs(soundSystem.currentlyPlaying) do
+        -- Cooldown für jede Kategorie aktualisieren
+        if soundSystem.cooldown[category] > 0 then
+            soundSystem.cooldown[category] = soundSystem.cooldown[category] - dt
+        else
+            soundSystem.cooldown[category] = 0
+        end
+        
+        -- Prioritäts-Timer reduzieren
+        if soundSystem.priorityTimer[category] > 0 then
+            soundSystem.priorityTimer[category] = soundSystem.priorityTimer[category] - dt
+        else
+            soundSystem.priorityTimer[category] = 0
+        end
+        
+        -- Prüfe, ob der Sound fertig ist
+        if soundSystem.playingSource[category] and 
+           not soundSystem.playingSource[category]:isPlaying() then
+            soundSystem.currentlyPlaying[category] = false
+            soundSystem.playingSource[category] = nil
+            soundSystem.priorityTimer[category] = 0  -- Timer zurücksetzen
+        end
     end
 end
 
+-- Optimierte Schuss-Funktion mit Rate-Limiting
 function shoot()
+    -- Zeit-basiertes Cooldown für Schüsse
+    local currentTime = love.timer.getTime()
+    if currentTime - lastShotTime < SHOT_COOLDOWN then
+        return  -- Zu schnelles Feuern verhindern
+    end
+    lastShotTime = currentTime
+    
+    -- Begrenze die maximale Anzahl von Schüssen
+    if #bullets >= MAX_BULLETS then
+        -- Ältesten Schuss entfernen
+        table.remove(bullets, 1)
+    end
+    
+    -- Erhöhte Schussgeschwindigkeit (+40%)
+    local speed = 700  -- Statt 500
+    
+    -- Standard-Schuss
+    local bullet = {
+        x = player.x + math.cos(player.angle) * player.radius,
+        y = player.y + math.sin(player.angle) * player.radius,
+        dx = math.cos(player.angle) * speed,
+        dy = math.sin(player.angle) * speed,
+        lifetime = 1.0,
+        length = 12  -- Länger für bessere Sichtbarkeit
+    }
+    table.insert(bullets, bullet)
+    
+    -- Triple-Shot wenn aktiv (begrenze auch hier die Anzahl)
     if activeEffects.triple_shot > 0 then
-        -- Drei Schüsse mit Streuung
-        local spread = math.pi / 12  -- 15 Grad Streuung
+        -- Wenn wir das Limit überschreiten würden, entferne alte Schüsse
+        while #bullets >= MAX_BULLETS - 2 do
+            table.remove(bullets, 1)
+        end
         
-        -- Mittlerer Schuss
-        local bullet1 = {
-            x = player.x + math.cos(player.angle) * player.radius,
-            y = player.y + math.sin(player.angle) * player.radius,
-            dx = math.cos(player.angle) * 500,
-            dy = math.sin(player.angle) * 500,
-            lifetime = 0.75,  -- Kürzere Reichweite
-            length = 8,
-            damage = 0.8  -- 80% Schaden
-        }
+        local spread = 0.3  -- 0.3 Radianten Streuung
         
         -- Linker Schuss
-        local bullet2 = {
+        local leftBullet = {
             x = player.x + math.cos(player.angle - spread) * player.radius,
             y = player.y + math.sin(player.angle - spread) * player.radius,
-            dx = math.cos(player.angle - spread) * 500,
-            dy = math.sin(player.angle - spread) * 500,
-            lifetime = 0.75,
-            length = 8,
-            damage = 0.8
+            dx = math.cos(player.angle - spread) * speed,
+            dy = math.sin(player.angle - spread) * speed,
+            lifetime = 1.0,
+            length = 12
         }
+        table.insert(bullets, leftBullet)
         
         -- Rechter Schuss
-        local bullet3 = {
+        local rightBullet = {
             x = player.x + math.cos(player.angle + spread) * player.radius,
             y = player.y + math.sin(player.angle + spread) * player.radius,
-            dx = math.cos(player.angle + spread) * 500,
-            dy = math.sin(player.angle + spread) * 500,
-            lifetime = 0.75,
-            length = 8,
-            damage = 0.8
+            dx = math.cos(player.angle + spread) * speed,
+            dy = math.sin(player.angle + spread) * speed,
+            lifetime = 1.0,
+            length = 12
         }
-        
-        table.insert(bullets, bullet1)
-        table.insert(bullets, bullet2)
-        table.insert(bullets, bullet3)
-    else
-        -- Normaler einzelner Schuss
-        local bullet = {
-            x = player.x + math.cos(player.angle) * player.radius,
-            y = player.y + math.sin(player.angle) * player.radius,
-            dx = math.cos(player.angle) * 500 * 1.2,
-            dy = math.sin(player.angle) * 500 * 1.2,
-            lifetime = 1.5,
-            length = 8,
-            damage = 1.0  -- Voller Schaden
-        }
-        table.insert(bullets, bullet)
+        table.insert(bullets, rightBullet)
     end
-    playSound("shoot")
+    
+    -- Optimiertes Sound-Handling für Schüsse
+    pcall(function()
+        -- Schuss-Sound (niedrige Priorität)
+        playSound("shoot", 1)  -- Priorität 1 (niedrig)
+    end)
 end
 
 function createAsteroid(size, x, y, invulnerable)
@@ -956,9 +1019,13 @@ function createAsteroid(size, x, y, invulnerable)
     table.insert(asteroids, asteroid)
 end
 
-function createExplosion(x, y, size)
-    -- Mehr Partikel für Explosionen
-    local particleCount = math.min(30, math.floor(size/4))  -- Noch mehr Partikel
+function createExplosion(x, y, size, count)
+    -- Falls zu viele Partikel, reduziere neue Explosion
+    if #particles > MAX_PARTICLES * 0.8 then
+        count = count or 5  -- Standardwert reduzieren
+    else
+        count = count or 15  -- Standardwert
+    end
     
     -- Alte Partikel entfernen wenn zu viele
     while #particles >= MAX_PARTICLES do
@@ -966,8 +1033,8 @@ function createExplosion(x, y, size)
     end
     
     -- Explosions-Partikel als Dreiecke/Splitter
-    for i = 1, particleCount do
-        local angle = (i / particleCount) * math.pi * 2
+    for i = 1, count do
+        local angle = (i / count) * math.pi * 2
         local speed = math.random(150, 300)
         
         -- Zufällige Dreieckspunkte für jeden Splitter
@@ -996,7 +1063,7 @@ function createExplosion(x, y, size)
         }
         table.insert(particles, particle)
     end
-    playSound("explosion")
+    playSound("explosion", 2)  -- Priorität 2 (mittel)
 end
 
 function generateShipPoints()
@@ -1024,18 +1091,26 @@ function generateAsteroidPoints(radius)
 end
 
 function drawPlayer()
-    love.graphics.setColor(0, 1, 1)  -- Cyan
-    local vertices = {}
-    for _, point in ipairs(player.points) do
-        local x = point[1]
-        local y = point[2]
-        -- Rotation um Ursprung
-        local rotated_x = x * math.cos(player.angle) - y * math.sin(player.angle)
-        local rotated_y = x * math.sin(player.angle) + y * math.cos(player.angle)
-        table.insert(vertices, player.x + rotated_x)
-        table.insert(vertices, player.y + rotated_y)
+    -- Nur zeichnen, wenn nicht blinkend oder Spiel pausiert
+    if not player.blinkState or gameState ~= "game" then
+        love.graphics.setColor(1, 1, 1)
+        
+        -- Zeichne Spielerschiff als Polygon
+        local vertices = {}
+        for i, point in ipairs(player.points) do
+            -- Verwende das korrekte Format für die Punkte (Array statt x/y-Objekt)
+            local x = point[1]
+            local y = point[2]
+            
+            -- Rotation um Ursprung
+            local rotated_x = x * math.cos(player.angle) - y * math.sin(player.angle)
+            local rotated_y = x * math.sin(player.angle) + y * math.cos(player.angle)
+            
+            table.insert(vertices, player.x + rotated_x)
+            table.insert(vertices, player.y + rotated_y)
+        end
+        love.graphics.polygon("line", vertices)
     end
-    love.graphics.polygon("line", vertices)
 end
 
 function drawAsteroid(asteroid)
@@ -1066,86 +1141,65 @@ function drawBullets()
 end
 
 function checkCollisions()
-    -- Schüsse gegen Asteroiden - häufigere Prüfung
-    for i = #bullets, 1, -1 do
-        local bullet = bullets[i]
-        for j = #asteroids, 1, -1 do
-            local asteroid = asteroids[j]
-            -- Verbesserte Hitbox-Berechnung
-            local dx = bullet.x - asteroid.x
-            local dy = bullet.y - asteroid.y
-            local distSq = dx*dx + dy*dy
-            local hitRadius = asteroid.radius * 1.2  -- 20% größere Hitbox
-            local radiusSq = hitRadius * hitRadius
+    -- Prüfe alle Kollisionen auf einmal für Stabilität
+    
+    -- Kollision: Spieler-Asteroid (verbessert)
+    if player and not (player.invulnerable and player.invulnerable > 0) then
+        for _, asteroid in ipairs(asteroids) do
+            -- Größere Hitbox für sicherere Erkennung
+            local hitDistance = (asteroid.radius + player.radius) * 1.2
             
-            if distSq < radiusSq then
-                createExplosion(asteroid.x, asteroid.y, asteroid.radius)
-                table.remove(bullets, i)
-                table.remove(asteroids, j)
-                score = score + 100
-                
-                if asteroid.radius >= MIN_ASTEROID_SIZE then
-                    local newSize = asteroid.radius * 0.7
-                    createAsteroid(newSize, asteroid.x, asteroid.y)
-                end
+            -- Direkter Distanz-Check ohne Quadratwurzel-Vermeidung für Stabilität
+            local dx = player.x - asteroid.x
+            local dy = player.y - asteroid.y
+            local distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance < hitDistance then
+                playerHit()
                 break
             end
-        end
-    end
-
-    -- Asteroiden gegen Asteroiden (mit Unverwundbarkeit)
-    local i = 1
-    while i <= #asteroids do
-        local a1 = asteroids[i]
-        local j = i + 1
-        local collision = false
-        
-        while j <= #asteroids do
-            local a2 = asteroids[j]
-            local dx = a1.x - a2.x
-            local dy = a1.y - a2.y
-            local distSq = dx*dx + dy*dy
-            local minDistSq = (a1.radius + a2.radius) * (a1.radius + a2.radius)
-            
-            -- Sichere Unverwundbarkeits-Prüfung
-            local a1_vulnerable = not a1.invulnerable or a1.invulnerable <= 0
-            local a2_vulnerable = not a2.invulnerable or a2.invulnerable <= 0
-            
-            if distSq < minDistSq and a1_vulnerable and a2_vulnerable then
-                local midX = (a1.x + a2.x) / 2
-                local midY = (a1.y + a2.y) / 2
-                createExplosion(midX, midY, math.max(a1.radius, a2.radius))
-                
-                -- Neue Asteroiden sind unverwundbar bei Kollisions-Teilung
-                local newSize = math.max(a1.radius * 0.5, 10)
-                for _ = 1, 2 do
-                    createAsteroid(newSize, midX, midY, 1.0)  -- 1 Sekunde unverwundbar
-                end
-                
-                score = score + 50
-                table.remove(asteroids, j)
-                table.remove(asteroids, i)
-                collision = true
-                break
-            end
-            j = j + 1
-        end
-        
-        if not collision then
-            i = i + 1
         end
     end
     
-    -- Spieler gegen Asteroiden (optimiert)
-    for _, asteroid in ipairs(asteroids) do
-        local dx = player.x - asteroid.x
-        local dy = player.y - asteroid.y
-        local distSq = dx*dx + dy*dy
-        local minDistSq = (asteroid.radius + player.radius) * (asteroid.radius + player.radius)
+    -- Kollision: Schuss-Asteroid (verbessert)
+    for i = #bullets, 1, -1 do
+        local bullet = bullets[i]
+        local bulletX, bulletY = bullet.x, bullet.y
+        local bulletRemoved = false
         
-        if distSq < minDistSq then
-            playerHit()
-            break
+        for j = #asteroids, 1, -1 do
+            if bulletRemoved then break end  -- Dieser Schuss wurde schon entfernt
+            
+            local asteroid = asteroids[j]
+            local dx = bulletX - asteroid.x
+            local dy = bulletY - asteroid.y
+            local distSq = dx*dx + dy*dy
+            local hitRadius = asteroid.radius * 1.2  -- Größere Hitbox für bessere Spielbarkeit
+            
+            if distSq < hitRadius * hitRadius then
+                -- Explosion mit angepasster Partikelzahl
+                local particleCount = math.min(15, math.max(5, 15 - math.floor(#particles / 20)))
+                createExplosion(asteroid.x, asteroid.y, asteroid.radius, particleCount)
+                
+                -- Punkte und Asteroid aufteilen oder entfernen
+                score = score + 100
+                if asteroid.radius >= MIN_ASTEROID_SIZE * 2 then
+                    splitAsteroid(j)
+                else
+                    table.remove(asteroids, j)
+                end
+                
+                -- Schuss entfernen (nur einmal pro Schuss)
+                table.remove(bullets, i)
+                bulletRemoved = true
+                
+                -- Kurzen Screen Shake hinzufügen
+                startScreenShake(0.1, 2)
+                
+                -- Sound
+                playSound("explosion", 2)  -- Priorität 2 (mittel)
+                break
+            end
         end
     end
 end
@@ -1161,10 +1215,12 @@ function resetGame()
     bullets = {}
     asteroids = {}
     particles = {}
-    thrusterParticles = {}  -- Neue Liste leeren
+    thrusterParticles = {}
+    powerups = {}
+    
     score = 0
     difficulty_timer = 0  -- Hier auch zurücksetzen!
-    MAX_ASTEROIDS = 5    -- Zurück zum Startwert
+    MAX_ASTEROIDS = 3    -- Zurück zum Startwert
     
     -- Anfangsasteroiden erstellen
     for i = 1, MAX_ASTEROIDS do
@@ -1181,7 +1237,11 @@ function resetGame()
     if love.system.getOS() == "Linux" and apmPipe then
         apmPipe:write("state=game,lives=3,timewarp=0,tripleshot=0\n")
         apmPipe:flush()
+        lastLedState = "state=game,lives=3,timewarp=0,tripleshot=0\n"
     end
+    
+    -- Speicher explizit freigeben
+    collectgarbage("collect")
 end
 
 function loadHighscore()
@@ -1203,7 +1263,13 @@ function saveHighscore(score)
 end
 
 function createThrusterParticle()
-    if #thrusterParticles > MAX_THRUSTER_PARTICLES then return end
+    -- Limitiere Thruster-Partikel bei vielen Objekten im Spiel
+    local maxParticles = MAX_THRUSTER_PARTICLES
+    if #particles > MAX_PARTICLES * 0.5 then
+        maxParticles = MAX_THRUSTER_PARTICLES * 0.5
+    end
+    
+    if #thrusterParticles > maxParticles then return end
     
     -- Mehrere Partikel pro Frame
     for i = 1, 3 do  -- 3 Partikel pro Frame
@@ -1244,6 +1310,11 @@ end
 
 -- In der Kollisionserkennung wenn der Spieler getroffen wird
 function playerHit()
+    -- Nur fortfahren, wenn der Spieler nicht unverwundbar ist
+    if player.invulnerable and player.invulnerable > 0 then
+        return  -- Früher beenden, wenn der Spieler unverwundbar ist
+    end
+    
     player.lives = player.lives - 1
     startScreenShake(0.3, 10)  -- Screen Shake bei JEDEM Tod
     createExplosion(player.x, player.y, 30)  -- Größere Explosion beim Tod
@@ -1261,8 +1332,46 @@ function playerHit()
         player.y = HEIGHT/2
         player.dx = 0
         player.dy = 0
-        player.angle = 0
-        player.invulnerable = 2  -- 2 Sekunden unverwundbar
+        
+        -- WICHTIG: Setze die Unverwundbarkeit für 2 Sekunden
+        player.invulnerable = 2.0
+        
+        -- Asteroiden verschieben, die zu nah sind
+        for _, asteroid in ipairs(asteroids) do
+            local dx = player.x - asteroid.x
+            local dy = player.y - asteroid.y
+            local dist = math.sqrt(dx*dx + dy*dy)
+            if dist < 100 then
+                -- Verschiebe Asteroiden an eine sichere Position
+                local angle = math.random() * math.pi * 2
+                asteroid.x = player.x + math.cos(angle) * 150
+                asteroid.y = player.y + math.sin(angle) * 150
+            end
+        end
+    end
+    
+    -- Update LEDs nach Treffer
+    if love.system.getOS() == "Linux" and apmPipe then
+        local livesLeft = math.max(0, player.lives)
+        apmPipe:write(string.format("state=%s,lives=%d,timewarp=0,tripleshot=0\n", 
+                                   gameState, livesLeft))
+        apmPipe:flush()
+    end
+    
+    -- Spieler-Treffer-Sound (höchste Priorität)
+    playSound("explosion", 5)  -- Priorität 5 (sehr hoch)
+end
+
+-- Füge eine Funktion zum Aktualisieren der Unverwundbarkeit hinzu
+function updateInvulnerability(dt)
+    if player.invulnerable and player.invulnerable > 0 then
+        player.invulnerable = player.invulnerable - dt
+        
+        -- Blinken während Unverwundbarkeit
+        player.blinkState = not player.blinkState
+    else
+        player.invulnerable = 0  -- Stelle sicher, dass es nicht negativ wird
+        player.blinkState = false
     end
 end
 
@@ -1331,6 +1440,9 @@ function activatePowerup(type)
         activeEffects.triple_shot = 10  -- Von 8 auf 10 Sekunden erhöht
         activeEffects.triple_shot_cooldown = 20
     end
+    
+    -- Power-up-Sound (höhere Priorität)
+    playSound("powerup", 3)  -- Priorität 3 (hoch)
 end
 
 -- Neue Update-Funktion für Power-ups
@@ -1373,7 +1485,7 @@ function updatePowerups(dt)
             activatePowerup(powerup.type)
             screenFlashTimer = 0.3
             table.remove(powerups, i)
-            playSound("powerup")
+            playSound("powerup", 3)  -- Priorität 3 (hoch)
         end
     end
 end
@@ -1540,4 +1652,93 @@ function love.quit()
     if apmPipe then
         apmPipe:close()
     end
+end
+
+-- Füge diese Garbage Collection Funktion hinzu
+function manualGarbageCollection()
+    -- Collect garbage periodically to prevent memory buildup
+    collectgarbage("collect")
+end
+
+function spawnNewAsteroids(dt)
+    if #asteroids < MAX_ASTEROIDS and #asteroids < MAX_ASTEROIDS_TOTAL then
+        if math.random() < 0.05 then
+            createPowerup()
+        else
+            -- Normaler Asteroiden-Spawn Code
+            local side = math.random(1, 4)
+            local x, y
+            if side == 1 then     -- oben
+                x = math.random(0, WIDTH)
+                y = -50
+            elseif side == 2 then -- rechts
+                x = WIDTH + 50
+                y = math.random(0, HEIGHT)
+            elseif side == 3 then -- unten
+                x = math.random(0, WIDTH)
+                y = HEIGHT + 50
+            else                  -- links
+                x = -50
+                y = math.random(0, HEIGHT)
+            end
+            
+            -- Richtung zur Mitte mit Zufallsabweichung
+            local angle = math.atan2(HEIGHT/2 - y, WIDTH/2 - x)
+            angle = angle + math.random(-0.5, 0.5)
+            local speed = math.random(50, 150)
+            
+            local asteroid = {
+                x = x,
+                y = y,
+                dx = math.cos(angle) * speed,
+                dy = math.sin(angle) * speed,
+                radius = 40,
+                angle = 0,
+                spin = math.random(-3, 3),
+                points = generateAsteroidPoints(40)
+            }
+            
+            -- Stelle sicher, dass neue Asteroiden nicht direkt auf dem Spieler spawnen
+            if x == nil and y == nil then
+                local dx = asteroid.x - player.x
+                local dy = asteroid.y - player.y
+                local dist = math.sqrt(dx*dx + dy*dy)
+                if dist < 100 then  -- Zu nah am Spieler
+                    asteroid.x = (asteroid.x + WIDTH/2) % WIDTH
+                    asteroid.y = (asteroid.y + HEIGHT/2) % HEIGHT
+                end
+            end
+            
+            table.insert(asteroids, asteroid)
+        end
+    end
+end
+
+function splitAsteroid(index)
+    local asteroid = asteroids[index]
+    
+    -- Neue kleinere Asteroiden erstellen
+    local newSize = asteroid.radius * 0.6
+    if newSize >= MIN_ASTEROID_SIZE then
+        -- Erstelle 2 kleinere Asteroiden mit unterschiedlichen Winkeln
+        for i = 1, 2 do
+            local angle = math.random() * 2 * math.pi  -- Zufälliger Winkel
+            local speed = math.random(50, 150)
+            
+            local newAsteroid = {
+                x = asteroid.x + math.random(-5, 5),  -- Leichte Verschiebung
+                y = asteroid.y + math.random(-5, 5),
+                dx = math.cos(angle) * speed,
+                dy = math.sin(angle) * speed,
+                radius = newSize,
+                angle = math.random() * math.pi * 2,
+                spin = math.random(-4, 4),
+                points = generateAsteroidPoints(newSize)
+            }
+            table.insert(asteroids, newAsteroid)
+        end
+    end
+    
+    -- Ursprünglichen Asteroiden entfernen
+    table.remove(asteroids, index)
 end 
